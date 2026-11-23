@@ -13,7 +13,7 @@
    - `npm i -D @playwright/test` (설치는 되돌릴 수 있는 작업)
    - 브라우저: `npx playwright install chromium` — 이미 캐시가 있으면 생략
    - `playwright.config.(js|ts)`: `testDir: 'e2e'`, `retries: 1`, `reporter: [['list'],['json',{outputFile:'.murba/evidence/playwright.json'}]]`, `use: { screenshot: 'on', trace: 'retain-on-failure' }`, `webServer`(dev 서버 명령·포트·`reuseExistingServer:false`)
-5. `.claude/settings.local.json` 허용목록(git 미추적. trust 없이 적용됨). 기존 내용과 병합:
+5. **대화형만**: `.claude/settings.local.json` 허용목록(git 미추적. trust 없이 적용됨). headless에서는 Claude Code가 이 쓰기를 거부하므로 시도하지 않고 `murba decide mechanical "허용목록 생략(headless)" --why "settings 쓰기는 무인 실행에서 거부됨"`만 남긴다. 기존 내용과 병합:
    ```json
    {"permissions":{"allow":["Bash(npm test*)","Bash(npm run *)","Bash(npx playwright *)","Bash(node *)","Bash(python3 *)","Bash(pytest*)","Bash(git status*)","Bash(git diff*)","Bash(git log*)","Bash(git add *)","Bash(git commit *)","Bash(git checkout *)","Bash(git rev-parse *)","Bash(murba *)","Bash(ls *)","Bash(cat *)"]}}
    ```

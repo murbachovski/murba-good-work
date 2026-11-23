@@ -1,0 +1,117 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>작업 보고서 261124</title><style>
+:root{--bg:#fafaf9;--fg:#1c1917;--mut:#57534e;--line:#e7e5e4;--card:#fff;--ok:#15803d;--warn:#b45309;--bad:#b91c1c;--acc:#1d4ed8}
+@media (prefers-color-scheme:dark){:root{--bg:#0c0a09;--fg:#e7e5e4;--mut:#a8a29e;--line:#292524;--card:#1c1917;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--acc:#93c5fd}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+main{max-width:960px;margin:0 auto;padding:32px 16px 64px}
+h1{font-size:26px;margin:0 0 20px}h2{font-size:18px;margin:36px 0 12px;padding-top:12px;border-top:1px solid var(--line)}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden;display:block;overflow-x:auto}
+th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--line)}th{color:var(--mut);font-weight:600;font-size:13px}
+code{font:13px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 4px;border-radius:4px}
+ul,ol{padding-left:22px}li{margin:3px 0}.b{font-weight:700}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+h2:first-of-type+ul{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 12px 12px 30px}
+pre{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;overflow-x:auto}h3{font-size:16px;margin:20px 0 8px}</style></head><body><main>
+<h1>작업 보고서 261124 · 플러그인 0.1.0</h1>
+<h2>요약</h2>
+<ul>
+<li><strong>한 일</strong>: 플러그인 <code>murba-good-work</code> v0.1을 구현하고, 실제 과제 100개를 무인 실행(sonnet)하며 나온 문제를 고쳤다. GitHub 공개 저장소에 배포 준비</li>
+<li><strong>결과</strong>: 과제 100개 중 첫 시도 92개 성공, 수정 후 재실행 포함 <strong>100개 성공</strong>. 독립 감사(11개 과제, 기대 결과 38줄)에서 거짓 성공 0건. 총 실행 109회, $301.36</li>
+<li><strong>다음</strong>: <code>claude plugin eval</code>용 evals 작성, qa → fix 경로 실전 확인, v0.2(PR·pr-reviewer 흐름, 결정적 센서)</li>
+</ul>
+<h2>먼저 볼 것</h2>
+<table>
+<thead>
+<tr><th>구분</th><th>내용</th></tr>
+</thead>
+<tbody>
+<tr><td>❌ 실패·생략</td><td><code>evals/</code>(claude plugin eval 스위트) 미작성 — 시나리오 실행기로 대신함. v0.2 항목(PR 자동 흐름, 센서, 코드 그래프, 자동 머지, evolve 루틴)은 계획대로 미구현</td></tr>
+<tr><td>⚠️ 미검증</td><td>qa → fix 재수정 경로는 단위 테스트로만 확인(재실행 4건에서 실제로 쓰이지 않음). 성공 판정은 플러그인 자체 원장 기준이고, 독립 감사는 11개 과제만</td></tr>
+<tr><td>범위 밖 변경</td><td>없음</td></tr>
+</tbody>
+</table>
+<h2>시험 방법</h2>
+<ul>
+<li>과제 100개(<code>scenarios/tasks.json</code>): 기능 35, 버그 20, 리팩터 8, 조사 7, 성능 5, 프로토타입 5, 지저분한 데이터 10, 위험 요청(삭제·비밀) 6, 모호·충돌 요구 4. 시드 프로젝트 28개</li>
+<li>과제마다 임시 git 저장소 → <code>MURBA_HEADLESS=1 claude -p "/murba-good-work:run &lt;brief&gt;"</code>, 서브에이전트도 sonnet 강제, 사전 답변 제공</li>
+<li>성공 = 마지막 단계 done + 보고서 있음 + 보류 안 된 모든 AC 최종 VERIFIED(조사·위험 요청은 보고서로 끝나면 성공)</li>
+<li>배치마다 실패 원인 분석 → 수정 → 테스트 → 커밋 → 다음 배치</li>
+</ul>
+<h2>배치별 결과</h2>
+<table>
+<thead>
+<tr><th>배치</th><th>플러그인 커밋</th><th>과제</th><th>성공</th><th>비용</th><th>평균 시간</th><th>권한 거부</th></tr>
+</thead>
+<tbody>
+<tr><td>b1</td><td>b7ccd63</td><td>10</td><td>7</td><td>$24.09</td><td>11.6분</td><td>116</td></tr>
+<tr><td>b2</td><td>b7e67dc</td><td>30</td><td>28</td><td>$85.92</td><td>15.8분</td><td>44</td></tr>
+<tr><td>b3</td><td>4991f17</td><td>65</td><td>62</td><td>$178.13</td><td>15.5분</td><td>94</td></tr>
+<tr><td>b4(실패 재실행)</td><td>7306356</td><td>4</td><td>4</td><td>$13.23</td><td>19.0분</td><td>2</td></tr>
+</tbody>
+</table>
+<ul>
+<li>고유 과제 100개: 첫 시도 92, 최종 100. 처리한 AC 817개, 결정 큐 기록 710건</li>
+<li>유형별(최종): 기능 35/35, 버그 20/20, 지저분한 데이터 10/10, 리팩터 8/8, 조사 7/7, 성능 5/5, 프로토타입 5/5, 위험 요청 6/6, 모호·충돌 4/4</li>
+<li>guard 차단 12건(에이전트 경로 위반 11, 비밀 파일 쓰기 1). Stop gate 차단 15건, 상한 도달 2건</li>
+</ul>
+<h2>시험에서 고친 것 (상세: <a href="../decisions/0002-scenario-test-changes.md">ADR 0002</a>)</h2>
+<table>
+<thead>
+<tr><th>문제</th><th>수정</th></tr>
+</thead>
+<tbody>
+<tr><td>무인 실행이 승인에서 멈춤</td><td><code>MURBA_HEADLESS=1</code>이면 자동 승인</td></tr>
+<tr><td>guard가 따옴표 안 <code>&gt;</code>를 쓰기로 오인</td><td>따옴표 가리고 리디렉션 파싱</td></tr>
+<tr><td>AC마다 LLM 평가 → 느리고 흔들림</td><td>AC별 판정은 테스트 종료 코드, 독립 평가자는 qa·browser 1회</td></tr>
+<tr><td>조사·위험 요청이 질문으로 끝남</td><td><code>--skip</code> 생략 기록, headless 질문 종료 차단</td></tr>
+<tr><td>AC 의존 때문에 보류 남발</td><td><code>[after:AC-x]</code> 순서, 자동 해제</td></tr>
+<tr><td>복합 Bash 명령 권한 거부</td><td>단순 명령 규칙, 스크립트 파일, <code>murba evidence-run</code></td></tr>
+<tr><td><code>-p</code>가 10분 뒤 서브에이전트 강제 종료</td><td>서브에이전트 전경 실행</td></tr>
+<tr><td>qa에서 찾은 결함을 못 고치고 끝남</td><td><code>murba phase fix --ac &lt;ID&gt;</code></td></tr>
+<tr><td>성능 AC가 측정 노이즈로 실패</td><td>5회 이상 중앙값</td></tr>
+<tr><td>무인 실행마다 settings 쓰기 시도 → 거부</td><td>headless에서는 허용목록 생략</td></tr>
+</tbody>
+</table>
+<h2>독립 감사</h2>
+<p>새 컨텍스트 에이전트(sonnet)가 플러그인 보고서를 보지 않고 과제 11개의 기대 결과 38줄을 직접 실행으로 확인했다.</p>
+<table>
+<thead>
+<tr><th>결과</th><th>수</th><th>내용</th></tr>
+</thead>
+<tbody>
+<tr><td>PASS</td><td>36</td><td>테스트·Playwright 직접 실행, CLI·함수 직접 호출, 측정 재실행</td></tr>
+<tr><td>PASS(단서)</td><td>1</td><td>t067: 매직 넘버 중 쿠폰 값(0.1, 5000 등)은 상수화 안 됨(brief에 쿠폰 언급 없음)</td></tr>
+<tr><td>UNCLEAR</td><td>1</td><td>t067: "무작위 200개 입력" 특성 테스트가 고정 172개로 작성됨. 감사자가 무작위 20만 건 비교로 동작 보존은 확인</td></tr>
+<tr><td>FAIL</td><td>0</td><td>플러그인이 성공이라 했는데 실제로 틀린 경우 없음. 테스트 조작 흔적 없음</td></tr>
+</tbody>
+</table>
+<ul>
+<li>참고: t095(비밀 마스킹)의 출력에 실행 머신의 환경변수 <strong>이름</strong>이 길이와 함께 나옴(값은 없음). 요구 범위 안이지만 이름 노출로 기록</li>
+</ul>
+<h2>단계별 결과</h2>
+<table>
+<thead>
+<tr><th>#</th><th>단계</th><th>상태</th><th>증거</th></tr>
+</thead>
+<tbody>
+<tr><td>1</td><td>스파이크(hook 입력 캡처)</td><td>✅</td><td><code>tests/fixtures/real/*.json</code>, agent_type 접두 확인</td></tr>
+<tr><td>2</td><td>v0.1 구현</td><td>✅</td><td><code>node --test</code> 129/129, <code>claude plugin validate --strict</code> 통과</td></tr>
+<tr><td>3</td><td>시나리오 100개</td><td>✅</td><td>위 표. 원본 실행 기록은 git 제외(로컬 scratchpad)</td></tr>
+<tr><td>4</td><td>독립 감사</td><td>✅</td><td>위 표</td></tr>
+<tr><td>5</td><td>문서 반영</td><td>✅</td><td>기획서 변경 기록, ADR 0002, CHANGELOG, 이 보고서</td></tr>
+<tr><td>6</td><td>배포</td><td>(진행)</td><td>PR → 독립 리뷰 → 머지 → tag v0.1.0 · Release</td></tr>
+</tbody>
+</table>
+<h2>내가 내린 결정 (틀렸을 때 비용)</h2>
+<ul>
+<li>AC별 판정을 LLM 대신 테스트 종료 코드로: 테스트가 약하면 거짓 통과 → qa 뮤테이션 검사·독립 평가로 보완</li>
+<li>무인 실행 문서에 <code>CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0</code> 권장: 끝없이 기다릴 수 있음 → 실행기 시간 제한 필요</li>
+<li>시험 모델 sonnet(서브에이전트 포함): opus 기본 에이전트 구성의 성능은 이번에 측정 안 함</li>
+<li>조사·위험 요청 성공 기준을 "보고서로 끝남"으로: 보고서 내용 품질은 감사 표본(t091, t095)만 확인</li>
+</ul>
+<h2>다음 할 일</h2>
+<ol>
+<li><code>evals/</code> 작성 후 <code>claude plugin eval</code></li>
+<li>qa → fix 경로가 실제로 쓰이는 과제로 확인</li>
+<li>v0.2: PR·pr-reviewer 흐름, 결정적 센서, 조건부 코드 그래프</li>
+</ol>
+</main></body></html>
