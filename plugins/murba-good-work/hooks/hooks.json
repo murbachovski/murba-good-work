@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [
+          { "type": "command", "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/run-hook.sh", "router"], "timeout": 10 }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|Read|Grep|Glob",
+        "hooks": [
+          { "type": "command", "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/run-hook.sh", "guard"], "timeout": 10, "onFailure": "block" }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/run-hook.sh", "stop-gate"], "timeout": 10 }
+        ]
+      }
+    ]
+  }
+}

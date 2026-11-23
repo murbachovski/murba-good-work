@@ -1,0 +1,9 @@
+- 실행 방법: `node report.js data/sales.csv` → 표준출력에 JSON
+- 매출 = 수량 × 단가
+- 월 기준: order_date의 YYYY-MM
+- 이상 행 규칙: 필수값(order_id, order_date, product, qty, unit_price) 빈 값, 날짜 형식 YYYY-MM-DD 아님 또는 존재하지 않는 날짜, qty ≤ 0, unit_price < 0 → `invalid` 목록에 {line, order_id, reason}
+- 중복: order_id가 같으면 첫 행만 집계, 나머지는 `duplicates` 목록
+- 출력 형식: {"months": {"2026-01": 12345, ...}, "invalid": [...], "duplicates": [...]} — 금액은 정수(원)
+- 외부 패키지 금지(node 내장만), 테스트는 node:test
+- 화면 없음
+- 승인: 기획서가 위 내용과 맞으면 승인

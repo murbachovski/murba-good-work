@@ -1,0 +1,25 @@
+#!/bin/sh
+# murba-good-work hook wrapper. Usage: run-hook.sh <router|guard|stop-gate>
+# - No .murba/ in the project (or .murba/disable present): exit 0 silently (no effect on other projects).
+# - node missing: guard denies (fail-closed), others pass.
+name="$1"
+here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+proj="${CLAUDE_PROJECT_DIR:-$PWD}"
+
+if [ ! -d "$proj/.murba" ] || [ -f "$proj/.murba/disable" ]; then
+  cat >/dev/null 2>&1
+  exit 0
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+  cat >/dev/null 2>&1
+  if [ "$name" = "guard" ]; then
+    printf '%s' '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"[murba guard] node가 없어 검사할 수 없어 차단(fail-closed). node를 설치하세요."}}'
+  fi
+  exit 0
+fi
+
+case "$name" in
+  router|guard|stop-gate) exec node "$here/$name.mjs" ;;
+  *) cat >/dev/null 2>&1; exit 0 ;;
+esac

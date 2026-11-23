@@ -48,7 +48,7 @@
 ## 검증 명령 (구현 시작 후)
 ```bash
 claude plugin validate ./plugins/murba-good-work --strict   # 구조 검사
-node --test plugins/murba-good-work/tests/                   # hook 단위 테스트
+node --test 'plugins/murba-good-work/tests/*.test.mjs'      # hook·CLI 테스트(node 26은 디렉터리 인자 불가)
 claude plugin eval ./plugins/murba-good-work                 # 동작 평가
 ```
 
