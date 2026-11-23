@@ -170,3 +170,20 @@ test('evidence-run creates fresh run dir and CURRENT pointer', () => {
   assert.ok(fs.statSync(path.join(p, rel)).isDirectory());
   assert.equal(fs.readFileSync(path.join(p, '.murba/evidence/CURRENT'), 'utf8').trim(), rel);
 });
+
+test('qa → fix --ac reopens a final NOT_VERIFIED AC within fix cap', () => {
+  const p = tmpProj();
+  toApprove(p);
+  assert.equal(m(p, ['approve']).code, 0);
+  const st0 = readState(p);
+  assert.equal(st0.approved, true);
+  write(p, '.murba/state.json', JSON.stringify({ ...st0, phase: 'qa', final_sha: 'abc',
+    ac: { ...st0.ac, 'AC-001': { ...st0.ac['AC-001'], final_verdict: { verdict: 'NOT_VERIFIED', sha: 'abc' }, verdicts: [{ verdict: 'NOT_VERIFIED', sha: 'abc', final: true }] },
+      'AC-002': { ...st0.ac['AC-002'], final_verdict: { verdict: 'VERIFIED', sha: 'abc' }, verdicts: [{ verdict: 'VERIFIED', sha: 'abc', final: true }] } } }));
+  write(p, '.murba/handoff/qa.md', 'qa');
+  assert.equal(m(p, ['phase', 'fix']).code, 1);
+  assert.equal(m(p, ['phase', 'fix', '--ac', 'AC-002']).code, 2);
+  assert.equal(m(p, ['phase', 'fix', '--ac', 'AC-001']).code, 0);
+  const st = readState(p);
+  assert.equal(st.phase, 'fix'); assert.equal(st.current_ac, 'AC-001');
+});

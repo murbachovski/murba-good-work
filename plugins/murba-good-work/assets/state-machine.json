@@ -126,6 +126,7 @@
         "@final_verdicts"
       ],
       "next": [
+        "fix",
         "browser",
         "report"
       ]

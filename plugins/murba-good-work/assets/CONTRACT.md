@@ -37,6 +37,7 @@
 | `murba ac unhold <ID>` | 보류 해제 |
 | `murba ac verdict <ID> <VERIFIED\|NOT_VERIFIED\|INCONCLUSIVE> --sha <sha> [--evidence <path>] [--final]` | 판정 기록. VERIFIED면 last_pass_sha 갱신 |
 | `murba ac hold <ID> --reason <r>` | 보류(보고서에 ❌). `--final VERIFIED` 판정이 오면 자동 해제(`unheld_by_final`) |
+| `murba phase fix --ac <ID>` (qa에서) | 최종 판정이 VERIFIED 아닌 AC를 다시 수정. current_ac=ID. 수정 상한이면 종료 코드 3 |
 | `murba fix-round <ID>` | fix_rounds+1, 3 초과 시 종료 코드 3 |
 | `murba approve` | spec_hash 고정, approved=true. headless는 `--auto-approve`로 init된 경우만 |
 | `murba lock-tests <glob...>` | 테스트 파일 sha256을 test_hashes에 기록 |

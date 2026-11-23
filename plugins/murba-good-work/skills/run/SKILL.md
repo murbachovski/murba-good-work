@@ -51,9 +51,9 @@ AC 줄 형식(spec.md): `- AC-001 [browser] [after:AC-000] WHEN <조건> THE SYS
 | feature | 전체 단계 |
 | bug-fix | grill에서 **재현 먼저**: 버그를 드러내는 실패 테스트가 AC. 이후 보통 흐름 |
 | refactor | 기존 테스트가 AC 기준선. test-write에서 기존 테스트를 `murba lock-tests`로 잠그고, 동작 보존(기존 테스트 전부 통과)이 판정 기준 |
-| perf | 변경 전 기준 측정을 `.murba/evidence/baseline-*.log`로 저장한 뒤 진행. AC는 측정 비율(예: 5배 이상 빠름) |
+| perf | 변경 전 기준 측정을 `.murba/evidence/baseline-*.log`로 저장한 뒤 진행. AC는 측정 비율(예: 5배 이상 빠름)이며 **같은 입력 5회 이상 측정의 중앙값**으로 판정(최대값·1회 측정 금지, 측정 노이즈로 실패하지 않게). 변경 전·후를 같은 스크립트로 번갈아 측정 |
 | prototype | 기획서는 가볍게, 그래도 AC와 브라우저 증거는 필수 |
-| investigation | triage → grill(질문 목록·조사 범위) → 조사 결과를 `.murba/reports/investigation.md`에 작성(근거 `file:line`·실행 결과) → `murba phase report --skip "조사 과제: 구현 없음"` → `murba report`. 소스는 고치지 않는다 |
+| investigation | triage → grill(질문 목록·조사 범위. spec.md에 **AC 줄을 쓰지 않는다** — 조사 질문은 `Q-1` 형식, `murba ac sync` 안 함) → 조사 결과를 `.murba/reports/investigation.md`에 작성(근거 `file:line`·실행 결과) → `murba phase report --skip "조사 과제: 구현 없음"` → `murba report`. 소스는 고치지 않는다 |
 | 위험 요청(삭제·DB 초기화·push 등) | **실행하지 않는다.** `murba decide irreversible "<요청>" --why "<이유>"`, 안전한 부분은 모두 하고 report로 끝 |
 
 ## 서브에이전트 kickoff 틀

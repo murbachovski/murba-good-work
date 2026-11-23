@@ -142,6 +142,14 @@ const cmds = {
         if (!remaining.length) fail(2, '전이 거부: 남은 AC 없음 → qa');
       }
       if (cur === 'evaluate' && next === 'qa' && remaining.length) fail(2, `전이 거부: 미검증 AC 남음(${remaining.join(',')})`);
+      if (cur === 'qa' && next === 'fix') {
+        const id = opt('--ac');
+        const a = id && id !== true && st.ac[id];
+        if (!a) fail(1, 'usage: murba phase fix --ac <ID>  (qa에서 최종 판정이 VERIFIED 아닌 AC 재수정)');
+        if (a.held || !a.final_verdict || a.final_verdict.verdict === 'VERIFIED') fail(2, `전이 거부: ${id}의 최종 판정이 VERIFIED 아님일 때만 qa → fix`);
+        if ((a.fix_rounds || 0) >= MACHINE.limits.fix_rounds_per_ac) fail(3, `상한: ${id} 수정 ${a.fix_rounds}회 — 보고서에 ❌로 남기고 report로`);
+        st.current_ac = id;
+      }
       if (cur === 'qa' && next === 'report' && nonHeldAcs(st).some(id => st.ac[id].browser)) fail(2, '전이 거부: [browser] AC가 있어 browser 단계 필요');
       if (cur === 'report' && next === 'build' && !opt('--reason')) fail(1, 'report → build 재작업은 --reason 필요');
       st.phase = next;

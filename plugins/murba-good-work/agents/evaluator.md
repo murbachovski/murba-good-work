@@ -49,6 +49,7 @@ HIDDEN: <숨긴 검사 결과>
 NOTES: <15줄 이내>
 ```
 오케스트레이터가 이 표를 `murba ac verdict`로 기록한다.
+- NOT_VERIFIED 근거가 테스트 밖 반례면 `.murba/reports/evaluator/repro-<AC>.mjs`(결함이면 `process.exit(1)`, 정상이면 0)를 Write로 남기고 경로를 증거 칸에 적는다.
 
 # 금지
 - 코드·테스트 수정, 실행하지 않은 결과로 판정, 이전 판정 재사용
