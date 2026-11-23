@@ -48,11 +48,13 @@ function parseSpecAcs() {
   return acs;
 }
 
-function walk(dir, acc = []) {
+function walk(dir, acc = [], root = dir) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (['node_modules', '.git', '.murba', '.venv', 'venv', 'dist', 'build', '.next'].includes(e.name)) continue;
+    if (['node_modules', '.git', '.venv', 'venv', 'dist', 'build', '.next'].includes(e.name)) continue;
+    // .murba/ is state, except .murba/hidden/ (hidden checks must be lockable)
+    if (e.name === '.murba' && dir === root) { const h = path.join(dir, '.murba', 'hidden'); if (fs.existsSync(h)) walk(h, acc, root); continue; }
     const p = path.join(dir, e.name);
-    if (e.isDirectory()) walk(p, acc); else acc.push(p);
+    if (e.isDirectory()) walk(p, acc, root); else acc.push(p);
   }
   return acc;
 }
@@ -64,7 +66,7 @@ const cmds = {
     const headless = flag('--headless') || isHeadless();
     const st = {
       schema: 1, plugin_version: pluginVersion(), phase: 'triage', auto: false, approved: false,
-      mode: headless ? 'headless' : 'interactive', auto_approve: flag('--auto-approve'),
+      mode: headless ? 'headless' : 'interactive', auto_approve: flag('--auto-approve') || process.env.MURBA_HEADLESS === '1',
       started_at: nowIso(), ac: {}, ac_order: [], current_ac: null, final_sha: null, spec_hash: null,
       test_hashes: {}, counters: { stop: {}, stop_total: 0, subagents: 0, fix_total: 0 },
       budget: { max_minutes: Number(opt('--max-minutes', 120)), max_subagents: Number(opt('--max-subagents', 40)), max_fix_rounds_total: 15 },
@@ -206,7 +208,7 @@ const cmds = {
     need();
     const st0 = readState(proj);
     if (st0.phase !== 'approve') fail(2, `approve 단계가 아님(현재 ${st0.phase})`);
-    if (st0.mode === 'headless' && !st0.auto_approve) fail(2, 'headless 모드에서는 --auto-approve로 init한 경우만 자동 승인');
+    if (st0.mode === 'headless' && !st0.auto_approve && process.env.MURBA_HEADLESS !== '1') fail(2, 'headless 모드 자동 승인은 MURBA_HEADLESS=1(사용자 사전 승인) 또는 --auto-approve로만 가능. 승인 대기로 보고서를 쓰고 끝낸다');
     if (!st0.ac_order.length) fail(2, 'AC 없음 — murba ac sync 먼저');
     const specP = path.join(md, 'spec.md');
     const hash = sha256File(specP);

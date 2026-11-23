@@ -20,7 +20,7 @@ description: "Use when the user wants a feature, app, bug fix or change built en
 ## 시작
 ```bash
 murba status 2>/dev/null || true          # 이미 진행 중이면 resume 스킬 사용
-if [ "$MURBA_HEADLESS" = "1" ]; then murba init --headless --auto-approve; else murba init; fi
+murba init   # 모드(대화형/headless)와 사전 승인 여부는 CLI가 환경변수로 스스로 판별한다. 직접 환경변수를 확인하지 않는다
 git checkout -b feat/<짧은-slug>          # git 저장소가 아니면 git init 후 첫 커밋
 ```
 - headless(`MURBA_HEADLESS=1`): 질문 금지. 사용자 프롬프트를 기획 brief로 쓰고, 모르는 것은 추천안으로 정해 `murba decide taste "<가정>" --why "<이유>"`.
@@ -32,7 +32,7 @@ git checkout -b feat/<짧은-slug>          # git 저장소가 아니면 git ini
 | grill | **grill 스킬** 실행 → `.murba/spec.md` 작성(AC 줄 형식은 아래) → `murba ac sync` | 나 | spec.md |
 | spec-review | `murba-good-work:spec-reviewer`에 spec 경로만 전달 → 응답을 `.murba/reports/spec-reviewer/review.md`로 저장 | spec-reviewer | review.md |
 | revise | 증명된 지적만 반영, 나머지는 보류 기록. `.murba/ac-test-map.md` 작성. `murba ac sync` | 나 | spec.md, ac-test-map.md |
-| approve | 대화형: 기획서+대응표 요약을 보여주고 AskUserQuestion으로 **1회 승인** + 그동안 쌓인 결정 큐 질문. 승인 → `murba approve`. headless: `murba approve` | 사용자 | @approved |
+| approve | 대화형: 기획서+대응표 요약을 보여주고 AskUserQuestion으로 **1회 승인** + 그동안 쌓인 결정 큐 질문. 승인 → `murba approve`. headless: `murba approve`. 거부되면(사전 승인 없음) 사용자에게 묻지 말고 `murba report`로 보고서를 쓰고 '승인 대기'로 끝낸다 | 사용자 | @approved |
 | setup | [references/setup.md](references/setup.md) | 나 | handoff/setup.md, init.sh |
 | test-write | [references/test-write.md](references/test-write.md) | test-writer | handoff, @test_hashes |
 | build / evaluate / fix | [references/build-loop.md](references/build-loop.md) | builder / evaluator | 표 참고 |

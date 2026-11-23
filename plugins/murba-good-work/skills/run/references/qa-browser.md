@@ -14,8 +14,10 @@
    - `git checkout -- <파일>` 로 즉시 복원, `git status --short` 깨끗한지 확인
    - 실패하지 않으면 그 AC 테스트는 "동작 미증명" → `murba decide taste "AC-xxx 테스트 약함" --why "뮤턴트 생존"`
    - 결과 표를 `.murba/reports/qa/mutation.md`
-7. 상위 목표 검사 1개: spec의 "성공" 줄을 실제 사용 흐름으로 1회 확인(명령 또는 브라우저)
-8. handoff → `[browser]` AC가 있으면 `murba phase browser`, 없으면 `murba phase report`
+7. **독립 평가(1회)**: `murba-good-work:evaluator` 디스패치(단계: qa). 입력: spec 경로, base SHA(`git rev-list --max-parents=0 HEAD` 또는 작업 시작 SHA)와 HEAD, `.murba/evidence/`·`.murba/reports/qa/` 경로. 지시: 테스트·숨긴 검사를 직접 다시 실행, diff에서 테스트 조작 규칙(삭제·skip·특정 입력 분기·몽키패치) 확인, AC별 VERIFIED/NOT_VERIFIED/INCONCLUSIVE.
+   - 평가자와 3번의 결정적 판정이 다르면 그 AC는 `--final` INCONCLUSIVE로 다시 기록하고 `murba decide taste "AC-xxx 판정 불일치" --why "<평가자 근거>"`
+8. 상위 목표 검사 1개: spec의 "성공" 줄을 실제 사용 흐름으로 1회 확인(명령 또는 브라우저)
+9. handoff → `[browser]` AC가 있으면 `murba phase browser`, 없으면 `murba phase report`
 
 ## browser
 1. 증거 폴더: `RUN=.murba/evidence/run-$(date -u +%Y%m%dT%H%M%SZ)` — 기존 폴더 덮어쓰기 금지

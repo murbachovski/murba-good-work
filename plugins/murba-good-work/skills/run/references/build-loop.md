@@ -19,16 +19,17 @@ loop:
 - 응답 받으면: `git log -1 --format=%H` 로 커밋 확인, `murba check-tests`(테스트 변조 검사, 종료 코드 2면 즉시 `git revert` 후 builder에 "테스트 수정 금지" 재지시)
 - handoff → `murba phase evaluate`
 
-## evaluate(ID)
-- `murba-good-work:evaluator` 디스패치. kickoff 입력:
-  - AC 본문, base SHA, 현재 SHA(`git rev-parse HEAD`)
-  - 실행할 명령: 해당 AC 테스트(`npm test -- --test-name-pattern "AC-xxx"` 등), 숨긴 검사 `.murba/hidden/`의 해당 AC
-  - diff는 `git diff <base>..HEAD` 로 직접 보라고 지시(본문 붙이지 않음)
-- evaluator 판정을 받으면 **네가 같은 테스트 명령을 직접 다시 실행**해 종료 코드 확인. 불일치 → INCONCLUSIVE
-- 기록: `murba ac verdict <ID> <판정> --sha <HEAD> --evidence .murba/reports/evaluator/<ID>.md`
-- 다음:
-  - VERIFIED → 다음 AC: `murba phase build` (남은 AC 없으면 `murba phase qa`)
-  - 그 외 → `murba phase fix`
+## evaluate(ID) — 결정적 판정(에이전트 호출 없음)
+AC별 판정은 진행 확인용이다. **오케스트레이터가 직접** 실행해 종료 코드로 정한다. 독립 평가자(evaluator)는 qa·browser 단계에서 전체를 본다(비용 절감, 결과는 같은 실행 증거).
+1. `murba check-tests` — 종료 코드 2면 테스트 변조 → 그 커밋 `git revert --no-edit`, builder에 "테스트 수정 금지" 재지시
+2. 해당 AC 테스트 + 그 AC의 숨긴 검사를 실행하고 출력을 증거 파일로 남긴다:
+   `node --test --test-name-pattern "AC-xxx" <테스트 glob> > .murba/evidence/AC-xxx-<짧은SHA>.log 2>&1; echo "exit=$?" >> 같은 파일`
+3. 판정: 종료 코드 0 → VERIFIED / 0 아님 → NOT_VERIFIED / 테스트가 0개 실행됨·명령 실패 → INCONCLUSIVE(통과 아님)
+4. 기록: `murba ac verdict <ID> <판정> --sha $(git rev-parse HEAD) --evidence .murba/evidence/AC-xxx-<짧은SHA>.log`
+5. INCONCLUSIVE가 2번 연속이면 그때만 `murba-good-work:evaluator`를 불러 원인을 본다(입력: AC 본문, base·현재 SHA, 증거 파일 경로)
+6. 다음:
+   - VERIFIED → 다음 AC: `murba phase build` (남은 AC 없으면 `murba phase qa`)
+   - 그 외 → `murba phase fix`
 
 ## fix(ID)
 1. `murba fix-round <ID>` — 종료 코드 3(상한) →

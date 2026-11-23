@@ -15,14 +15,14 @@ const CONC = Number(args.concurrency || 6);
 const TIMEOUT_MS = Number(args['timeout-min'] || 30) * 60_000;
 const MODEL = args.model || 'sonnet';
 
-const tasks = JSON.parse(fs.readFileSync(path.join(REPO, 'scenarios', 'tasks.json'), 'utf8'));
+const tasks = JSON.parse(fs.readFileSync(args['tasks-file'] ? path.resolve(args['tasks-file']) : path.join(REPO, 'scenarios', 'tasks.json'), 'utf8'));
 let selected = tasks;
 if (args.ids) { const ids = new Set(String(args.ids).split(',')); selected = tasks.filter(t => ids.has(t.id)); }
 else if (args.range) { const [a, b] = String(args.range).split('-').map(Number); selected = tasks.slice(a - 1, b); }
 
 const ALLOWED = ['Read', 'Write', 'Edit', 'MultiEdit', 'Glob', 'Grep', 'Agent', 'Skill', 'TodoWrite',
   ...['node', 'npm', 'npx', 'git', 'murba', 'ls', 'cat', 'mkdir', 'cp', 'mv', 'echo', 'printf', 'head', 'tail', 'wc', 'grep',
-    'find', 'sed', 'diff', 'chmod', 'test', 'pwd', 'date', 'sort', 'uniq', 'touch', 'sh ./init.sh', 'sh .murba/init.sh', 'bash .murba/init.sh', 'curl -s http://localhost', 'curl -s http://127.0.0.1', 'sleep', 'kill', 'lsof -i', 'jq', 'awk', 'tr', 'cut', 'xargs', 'true'].map(c => `Bash(${c}:*)`)];
+    'find', 'sed', 'diff', 'chmod', 'test', 'pwd', 'date', 'sort', 'uniq', 'touch', 'sh ./init.sh', 'sh .murba/init.sh', 'bash .murba/init.sh', 'curl -s http://localhost', 'curl -s http://127.0.0.1', 'sleep', 'kill', 'lsof -i', 'jq', 'awk', 'tr', 'cut', 'xargs', 'true', 'which', 'printenv', 'murba status', 'node --test'].map(c => `Bash(${c}:*)`)];
 
 function seedDir(seed) {
   if (!seed) return null;
@@ -49,7 +49,7 @@ async function runOne(t) {
   sh('git init -q && git add -A && git -c user.email=test@example.com -c user.name=harness commit -q --allow-empty -m seed', work);
   fs.writeFileSync(path.join(dir, 'task.json'), JSON.stringify(t, null, 2));
   const started = Date.now();
-  const env = { ...process.env, MURBA_HEADLESS: '1', GIT_AUTHOR_NAME: 'harness', GIT_AUTHOR_EMAIL: 'test@example.com', GIT_COMMITTER_NAME: 'harness', GIT_COMMITTER_EMAIL: 'test@example.com' };
+  const env = { ...process.env, MURBA_HEADLESS: '1', CLAUDE_CODE_SUBAGENT_MODEL: MODEL, CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '1', GIT_AUTHOR_NAME: 'harness', GIT_AUTHOR_EMAIL: 'test@example.com', GIT_COMMITTER_NAME: 'harness', GIT_COMMITTER_EMAIL: 'test@example.com' };
   const log = fs.openSync(path.join(dir, 'stream.jsonl'), 'w');
   const err = fs.openSync(path.join(dir, 'stderr.txt'), 'w');
   const child = spawn('claude', ['-p', '--plugin-dir', PLUGIN, '--model', MODEL, '--permission-mode', 'acceptEdits',

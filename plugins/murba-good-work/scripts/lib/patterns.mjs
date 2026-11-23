@@ -109,11 +109,29 @@ export function commandWords(tokens) {
 const SHELLS = ['sh', 'bash', 'zsh', 'dash', 'ksh', 'fish'];
 const base = t => (t || '').split('/').pop();
 
+// Quote-aware: `>` inside '...' or "..." (JS arrows, comparisons in `node -e`) is not a redirect.
+function maskQuotes(seg) {
+  let out = '', q = null;
+  for (let i = 0; i < seg.length; i++) {
+    const c = seg[i];
+    if (q) { if (c === q) { q = null; out += c; } else if (c === '\\' && q === '"') { out += '__'; i++; } else out += '_'; continue; }
+    if (c === "'" || c === '"') { q = c; out += c; continue; }
+    if (c === '\\') { out += '__'; i++; continue; }
+    out += c;
+  }
+  return out;
+}
+
 export function redirectTargets(seg) {
   const targets = [];
-  const re = /(?:^|[^<>&0-9])(?:[0-9]?>>?|&>)\s*(['"]?)([^\s'";|&<>]+)\1/g;
+  const masked = maskQuotes(seg);
+  const re = /(?:^|[^<>&0-9=])(?:[0-9]?>>?|&>>?)(?!&)\s*/g;
   let m;
-  while ((m = re.exec(seg))) targets.push(m[2]);
+  while ((m = re.exec(masked))) {
+    const start = m.index + m[0].length;
+    const tok = tokenize(seg.slice(start))[0];
+    if (tok) targets.push(tok);
+  }
   return targets;
 }
 

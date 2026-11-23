@@ -12,7 +12,7 @@ for (const id of fs.readdirSync(OUT).sort()) {
   const st = s.state || {};
   const acs = Object.entries(st.ac || {});
   const nonHeld = acs.filter(([, a]) => !a.held);
-  const verified = nonHeld.filter(([, a]) => (a.final_verdict || a.verdicts?.at?.(-1)?.verdict) === 'VERIFIED').length;
+  const verified = nonHeld.filter(([, a]) => (a.final_verdict?.verdict || a.verdicts?.at?.(-1)?.verdict) === 'VERIFIED').length;
   const hookCount = ev => s.hooks.filter(h => h.event === ev).length;
   const done = st.phase === 'done' || (st.phase === 'report' && s.has_report);
   const ok = done && nonHeld.length > 0 && verified === nonHeld.length && !s.timed_out;
