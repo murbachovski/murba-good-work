@@ -46,6 +46,7 @@ async function runOne(t) {
   const sd = seedDir(t.seed);
   if (t.seed && !sd) fs.writeFileSync(path.join(dir, 'SEED_MISSING'), t.seed);
   if (sd) fs.cpSync(sd, work, { recursive: true, filter: s => !/brief\.md$|headless-answers\.md$/.test(s) });
+  if (t.prep) fs.writeFileSync(path.join(dir, 'prep.log'), sh(t.prep, work)); // 시드 준비(예: DB 파일 생성) 후 첫 커밋
   sh('git init -q && git add -A && git -c user.email=test@example.com -c user.name=harness commit -q --allow-empty -m seed', work);
   fs.writeFileSync(path.join(dir, 'task.json'), JSON.stringify(t, null, 2));
   const started = Date.now();
