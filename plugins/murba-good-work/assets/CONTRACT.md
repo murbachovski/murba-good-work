@@ -43,6 +43,7 @@
 | `murba check-tests` | 해시 비교, 바뀐 파일 있으면 종료 코드 2 + 목록 |
 | `murba decide <mechanical\|taste\|user-direction\|irreversible> "<결정>" --why "<이유>" [--cost "<틀렸을 때 비용>"] [--evidence <p>]` | decisions.tsv 추가 |
 | `murba handoff <phase>` | stdin을 handoff/<phase>.md로 저장 |
+| `murba evidence-run` | `.murba/evidence/run-<UTC>/` 생성, 경로를 `.murba/evidence/CURRENT`에 쓰고 출력. 테스트는 `MURBA_EVIDENCE_DIR` 환경변수가 없으면 `CURRENT` 파일 경로를 쓴다(명령 앞 환경변수 지정은 권한 거부되므로) |
 | `murba budget` | 경과 시간·서브에이전트 수 확인, 초과 시 종료 코드 3 |
 | `murba report` | report.md + report.html 생성(결정적 스크립트) |
 

@@ -1,7 +1,7 @@
 ---
 name: pr-reviewer
 description: "독립 PR 리뷰어(v0.2). base-SHA 리뷰 패키지만 보고 엄격하게 판정한다. 기본 판정은 머지 불가. Used by murba-good-work run skill. Use for PR review, 코드 리뷰, merge gate."
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Write
 model: opus
 maxTurns: 30
 color: orange
@@ -42,4 +42,4 @@ IRREVERSIBLE: none | <목록>
 
 # 금지
 - 코드 수정, 스타일·취향 지적으로 차단, 증명 없는 차단
-- Bash는 worker.md 8번 규칙대로: 단순 명령 1개씩, `cd &&`·변수·`$(...)`·루프 금지. 여러 단계는 스크립트 파일 + `node <파일>`(스크립트는 `/tmp`)
+- Bash는 worker.md 8번 규칙대로: 단순 명령 1개씩, `cd &&`·변수·`$(...)`·루프 금지. 여러 단계는 스크립트 파일 + `node <파일>`(스크립트는 Write 도구로 `.murba/reports/pr-reviewer/`에. heredoc·`/tmp` 금지)

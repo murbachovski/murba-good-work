@@ -21,7 +21,7 @@
 9. handoff → `[browser]` AC가 있으면 `murba phase browser`, 없으면 `murba phase report`
 
 ## browser
-1. 증거 폴더: `date -u +%Y%m%dT%H%M%SZ` 출력값으로 `.murba/evidence/run-<시각>`을 정하고(이하 `<RUN>`) `mkdir -p <RUN>` — 기존 폴더 덮어쓰기 금지
+1. 증거 폴더: `murba evidence-run` — 출력 경로가 `<RUN>`(새 폴더, 테스트는 `.murba/evidence/CURRENT`로 찾음). 명령 앞 환경변수 지정 금지
 2. `murba-good-work:evaluator` 디스패치(단계: browser). 지시:
    - `npx playwright test e2e/ > <RUN>/playwright.log 2>&1` (종료 코드는 도구 결과)
    - 각 `[browser]` AC: 스크린샷을 `<RUN>/AC-xxx.png`로 복사(테스트에서 `page.screenshot({path})` 또는 test-results에서 복사)

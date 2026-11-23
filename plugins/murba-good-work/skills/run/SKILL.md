@@ -17,7 +17,8 @@ description: "Use when the user wants a feature, app, bug fix or change built en
 6. 한 번에 **AC 1개**. 커밋은 `feat/<slug>` 브랜치에 AC마다. main 커밋·push 금지.
 7. 매 단계 시작에 `murba budget` (종료 코드 3 → report로 가서 멈춤 보고).
 8. 서브에이전트 kickoff 첫 줄은 항상: `Read ${CLAUDE_PLUGIN_ROOT}/assets/worker.md first.` kickoff는 20줄 이하, 핵심은 처음과 끝에.
-9. **Bash는 단순하게**(권한 프롬프트·거부로 멈추지 않게): 프로젝트 루트에서 실행, `cd x &&` 금지, 셸 변수·`$(...)`·for 루프·서브셸 금지, 호출 1번에 단순 명령 1개. 값(SHA 등)은 앞 명령 출력에서 그대로 복사해 쓴다. 여러 단계 로직은 `.murba/reports/<이름>/` 또는 `/tmp`에 스크립트 파일로 쓰고 `node <파일>`로 실행. 테스트는 `node --test <glob>`, `npx playwright test`를 직접. 종료 코드는 Bash 도구 결과에 나온다.
+9. **Bash는 단순하게**(권한 프롬프트·거부로 멈추지 않게): 프로젝트 루트에서 실행, `cd x &&` 금지, 셸 변수·`$(...)`·for 루프·서브셸 금지, 호출 1번에 단순 명령 1개. 값(SHA 등)은 앞 명령 출력에서 그대로 복사해 쓴다. 명령 앞 환경변수 지정·파일 쓰기용 heredoc(`cat > f <<EOF`)·`/tmp` 금지(`murba handoff <<'EOF'`는 허용). 여러 단계 로직은 Write 도구로 `.murba/reports/<이름>/`에 스크립트 파일을 쓰고 `node <파일>`로 실행. 테스트는 `node --test <glob>`, `npx playwright test`를 직접. 종료 코드는 Bash 도구 결과에 나온다.
+10. **서브에이전트·명령은 전경(foreground)으로만**: Agent 호출에 항상 `run_in_background: false`를 넣는다. Bash `run_in_background`·Monitor·"알림 대기"로 턴을 끝내지 않는다(headless `-p`는 턴이 끝나면 백그라운드 작업을 기다리다 강제 종료한다). 서버가 필요한 검사는 Playwright `webServer` 설정이나 한 번에 끝나는 스크립트(서버 시작 → 측정 → 종료)로 한다.
 
 ## 시작
 **`.murba/`는 플러그인 상태 폴더이지 소스 변경이 아니다**(gitignore됨). 읽기 전용 조사 과제라도 **항상 `murba init`** 한다.

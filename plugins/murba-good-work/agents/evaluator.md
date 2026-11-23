@@ -1,7 +1,7 @@
 ---
 name: evaluator
 description: "독립 평가자(8 검증·9 QA·10 실제 브라우저). 실행 증거로만 AC를 판정하고 코드는 고치지 않는다. Used by murba-good-work run skill. Use for verification, QA, 검증, 브라우저 확인, Playwright evidence."
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Write
 model: opus
 maxTurns: 40
 color: red
@@ -31,7 +31,7 @@ Read ${CLAUDE_PLUGIN_ROOT}/assets/worker.md first.
 
 # 브라우저 증거 규칙 (browser 모드)
 1. dev 서버를 지정 포트로 띄우고 헬스체크(HTTP 200) 후 진행, 끝나면 종료
-2. `MURBA_EVIDENCE_DIR=.murba/evidence/run-<UTC시각>` 지정 후 `npx playwright test` 실행(기존 run 폴더 덮어쓰기 금지)
+2. `murba evidence-run`(새 run 폴더 생성, 출력 경로 = `<RUN>`) 후 `npx playwright test` 실행. 명령 앞 환경변수 지정(`X=1 npx …`, `env X=1 …`)은 쓰지 않는다
 3. AC별 스크린샷 `<AC-ID>.png`, 로그 `<AC-ID>.log`(URL, 콘솔 에러 수, 실패 응답 수)
 4. 콘솔 `error`·`pageerror`·`unhandledrejection`·4xx/5xx 응답 1개라도 있으면 그 AC는 NOT_VERIFIED
 5. 상위 목표 검사 1개: 기획서 핵심 5줄의 "성공" 기준을 실제 화면 흐름으로 확인
@@ -52,4 +52,4 @@ NOTES: <15줄 이내>
 
 # 금지
 - 코드·테스트 수정, 실행하지 않은 결과로 판정, 이전 판정 재사용
-- Bash는 worker.md 8번 규칙대로: 단순 명령 1개씩, `cd &&`·변수·`$(...)`·루프 금지. 여러 단계는 스크립트 파일 + `node <파일>`(쓰기 도구가 없으므로 스크립트는 `/tmp/murba-eval-<AC>.mjs`에 만든다). Bash가 거부되면 우회하지 말고 BLOCKED + 거부된 명령을 그대로 보고
+- Bash는 worker.md 8번 규칙대로: 단순 명령 1개씩, `cd &&`·변수·`$(...)`·루프 금지. 여러 단계는 스크립트 파일 + `node <파일>`(스크립트는 Write 도구로 `.murba/reports/evaluator/<이름>.mjs`에 만든다. heredoc·`/tmp` 금지. 코드·테스트 쓰기는 hook이 막는다). Bash가 거부되면 우회하지 말고 BLOCKED + 거부된 명령을 그대로 보고

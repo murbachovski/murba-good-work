@@ -313,6 +313,16 @@ const cmds = {
     out(`handoff 저장: .murba/handoff/${ph}.md`);
   },
 
+  'evidence-run'() {
+    need();
+    const rel = `.murba/evidence/run-${new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')}`;
+    if (fs.existsSync(path.join(proj, rel))) fail(2, `${rel} 이미 있음 — 1초 뒤 다시`);
+    fs.mkdirSync(path.join(proj, rel), { recursive: true });
+    fs.writeFileSync(path.join(md, 'evidence', 'CURRENT'), rel + '\n');
+    appendEvent(proj, 'evidence_run', { dir: rel });
+    out(rel);
+  },
+
   budget() {
     need();
     if (flag('--subagent')) updateState(proj, st => { st.counters.subagents = (st.counters.subagents || 0) + 1; });
@@ -336,7 +346,7 @@ const cmds = {
   },
 
   help() {
-    out(`murba <init|status|phase|ac|fix-round|approve|lock-tests|check-tests|decide|handoff|budget|report>\n자세한 계약: ${path.join(here, '..', 'assets', 'CONTRACT.md')}`);
+    out(`murba <init|status|phase|ac|fix-round|approve|lock-tests|check-tests|decide|handoff|evidence-run|budget|report>\n자세한 계약: ${path.join(here, '..', 'assets', 'CONTRACT.md')}`);
   },
 };
 

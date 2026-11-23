@@ -20,7 +20,7 @@ Read ${CLAUDE_PLUGIN_ROOT}/assets/worker.md first.
 # 할 일
 1. AC마다 테스트 1개 이상. 테스트 이름에 AC ID 포함(`AC-001: ...`)
 2. 공개 인터페이스(입력→출력, 화면 동작)로 행동을 검사한다. 내부 구현·private 함수에 기대지 않는다
-3. `[browser]` AC는 `@playwright/test` 스크립트로: 콘솔 `error`·`pageerror`·4xx/5xx 응답이 있으면 실패하도록 수집 코드 포함, 스크린샷 경로는 `.murba/evidence/` 아래로 받도록 환경변수(`MURBA_EVIDENCE_DIR`) 사용
+3. `[browser]` AC는 `@playwright/test` 스크립트로: 콘솔 `error`·`pageerror`·4xx/5xx 응답이 있으면 실패하도록 수집 코드 포함, 스크린샷 폴더 = `process.env.MURBA_EVIDENCE_DIR`, 없으면 `.murba/evidence/CURRENT` 파일 내용(trim), 그것도 없으면 `.murba/evidence/run-local`
 4. 순서 의존 금지(정렬 안 된 컬렉션 비교, 테스트 간 상태 공유 금지)
 4-1. **AC 독립**: 각 AC 테스트는 **그 AC(와 `[after:]`로 선언된 선행 AC)만 구현돼도 통과**해야 한다. 다른 AC의 오류 문구·저장·렌더 동작을 전제하지 않는다(필요하면 테스트 안에서 직접 준비: localStorage 시드, 파일 픽스처 등). 정말 의존이 필요하면 `DONE_WITH_CONCERNS`로 "AC-xxx는 AC-yyy 필요"를 보고(오케스트레이터가 승인 전이면 `[after:]`를 붙인다)
 5. **숨긴 검사**: AC마다 변형 입력 1개(경계값·다른 데이터)를 `.murba/hidden/`에 별도 테스트로 작성. 일반 테스트 파일에서 참조하지 않는다

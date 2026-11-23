@@ -25,8 +25,9 @@
 
 무인 실행(질문 없이, 답을 미리 줌):
 ```
-MURBA_HEADLESS=1 claude -p "/murba-good-work:run $(cat brief.md)"
+MURBA_HEADLESS=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 claude -p "/murba-good-work:run $(cat brief.md)"
 ```
+- `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`: `-p`는 기본적으로 백그라운드 작업을 10분까지만 기다리고 끝낸다. 긴 서브에이전트가 끊기지 않게 한다
 
 ## 흐름
 | 단계 | 사용자 흐름 | 담당 | 증거 |

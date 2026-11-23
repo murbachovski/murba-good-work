@@ -49,7 +49,7 @@ async function runOne(t) {
   sh('git init -q && git add -A && git -c user.email=test@example.com -c user.name=harness commit -q --allow-empty -m seed', work);
   fs.writeFileSync(path.join(dir, 'task.json'), JSON.stringify(t, null, 2));
   const started = Date.now();
-  const env = { ...process.env, MURBA_HEADLESS: '1', CLAUDE_CODE_SUBAGENT_MODEL: MODEL, CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '1', GIT_AUTHOR_NAME: 'harness', GIT_AUTHOR_EMAIL: 'test@example.com', GIT_COMMITTER_NAME: 'harness', GIT_COMMITTER_EMAIL: 'test@example.com' };
+  const env = { ...process.env, MURBA_HEADLESS: '1', CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS: '0', CLAUDE_CODE_SUBAGENT_MODEL: MODEL, CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '1', GIT_AUTHOR_NAME: 'harness', GIT_AUTHOR_EMAIL: 'test@example.com', GIT_COMMITTER_NAME: 'harness', GIT_COMMITTER_EMAIL: 'test@example.com' };
   const log = fs.openSync(path.join(dir, 'stream.jsonl'), 'w');
   const err = fs.openSync(path.join(dir, 'stderr.txt'), 'w');
   const child = spawn('claude', ['-p', '--plugin-dir', PLUGIN, '--model', MODEL, '--permission-mode', 'acceptEdits',

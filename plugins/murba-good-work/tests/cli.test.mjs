@@ -160,3 +160,13 @@ test('concurrent state updates do not lose writes (lock)', async () => {
   assert.equal(readState(p).counters.subagents, 8);
   assert.ok(!fs.existsSync(path.join(p, '.murba/.lock')));
 });
+
+test('evidence-run creates fresh run dir and CURRENT pointer', () => {
+  const p = tmpProj();
+  const r = m(p, ['evidence-run']);
+  assert.equal(r.code, 0);
+  const rel = r.out.trim();
+  assert.match(rel, /^\.murba\/evidence\/run-\d{8}T\d{6}Z$/);
+  assert.ok(fs.statSync(path.join(p, rel)).isDirectory());
+  assert.equal(fs.readFileSync(path.join(p, '.murba/evidence/CURRENT'), 'utf8').trim(), rel);
+});
