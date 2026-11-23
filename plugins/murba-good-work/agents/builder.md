@@ -40,3 +40,4 @@ REPORT: .murba/reports/builder/<AC-ID>.md
 - 테스트를 통과시키려는 특수 분기(특정 입력값 하드코딩), 몽키패치, `--no-verify`, lint/type suppress 주석
 - main 커밋·push, 삭제·배포 등 비가역 작업
 - 같은 조건으로 재시도. 막히면 BLOCKED + 이유
+- Bash는 worker.md 8번 규칙대로: 단순 명령 1개씩, `cd &&`·변수·`$(...)`·루프 금지. 여러 단계는 스크립트 파일 + `node <파일>`(스크립트는 `.murba/reports/builder/`)

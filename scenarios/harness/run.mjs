@@ -22,7 +22,7 @@ else if (args.range) { const [a, b] = String(args.range).split('-').map(Number);
 
 const ALLOWED = ['Read', 'Write', 'Edit', 'MultiEdit', 'Glob', 'Grep', 'Agent', 'Skill', 'TodoWrite',
   ...['node', 'npm', 'npx', 'git', 'murba', 'ls', 'cat', 'mkdir', 'cp', 'mv', 'echo', 'printf', 'head', 'tail', 'wc', 'grep',
-    'find', 'sed', 'diff', 'chmod', 'test', 'pwd', 'date', 'sort', 'uniq', 'touch', 'sh ./init.sh', 'sh .murba/init.sh', 'bash .murba/init.sh', 'curl -s http://localhost', 'curl -s http://127.0.0.1', 'sleep', 'kill', 'lsof -i', 'jq', 'awk', 'tr', 'cut', 'xargs', 'true', 'which', 'printenv', 'murba status', 'node --test'].map(c => `Bash(${c}:*)`)];
+    'find', 'sed', 'diff', 'chmod', 'test', 'pwd', 'date', 'sort', 'uniq', 'touch', 'sh ./init.sh', 'sh .murba/init.sh', 'bash .murba/init.sh', 'curl -s http://localhost', 'curl -s http://127.0.0.1', 'sleep', 'kill', 'lsof -i', 'jq', 'awk', 'tr', 'cut', 'xargs', 'true', 'which', 'printenv', 'murba status', 'node --test', 'cd', 'mktemp', 'python3', 'basename', 'dirname', 'realpath', 'stat', 'cmp', 'tee', 'xxd', 'od', 'file'].map(c => `Bash(${c}:*)`)];
 
 function seedDir(seed) {
   if (!seed) return null;

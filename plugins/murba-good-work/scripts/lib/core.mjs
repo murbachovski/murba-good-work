@@ -150,8 +150,14 @@ export function missingRequires(proj, st, phase = st.phase) {
     if (r === '@approved' && !st.approved) miss.push('승인(murba approve)');
     if (r === '@test_hashes' && !Object.keys(st.test_hashes || {}).length) miss.push('테스트 해시(murba lock-tests)');
     if (r === '@current_ac_verdict') {
-      const ac = st.current_ac && st.ac[st.current_ac];
-      if (!ac || (!ac.held && (!ac.verdicts || !ac.verdicts.length))) miss.push(`판정(murba ac verdict ${st.current_ac || '<AC>'})`);
+      if (!st.current_ac) {
+        // after `murba ac next` exhausted the queue: satisfied when every non-held AC has a verdict
+        const noVerdict = nonHeldAcs(st).filter(id => !st.ac[id].verdicts || !st.ac[id].verdicts.length);
+        if (noVerdict.length) miss.push(`판정 없는 AC: ${noVerdict.join(',')}`);
+      } else {
+        const ac = st.ac[st.current_ac];
+        if (!ac || (!ac.held && (!ac.verdicts || !ac.verdicts.length))) miss.push(`판정(murba ac verdict ${st.current_ac})`);
+      }
     }
     if (r === '@final_verdicts') {
       const bad = nonHeldAcs(st).filter(id => !st.ac[id].final_verdict || st.ac[id].final_verdict.sha !== st.final_sha);
@@ -174,3 +180,15 @@ export function nextActionHint(st) {
   const nx = def.next.join(' | ') || '(끝)';
   return `phase=${st.phase} (${def.flow}, 담당 ${def.owner}) → 조건 충족 후 \`murba phase <${nx}>\``;
 }
+
+// Linear default order used by `murba phase <target> --skip` (fix is a loop, not on the chain).
+export const CHAIN = MACHINE.chain || ['triage', 'grill', 'spec-review', 'revise', 'approve', 'setup', 'test-write', 'build', 'evaluate', 'qa', 'browser', 'report', 'done'];
+
+// Question-ending detector for headless stop gate.
+export function endsWithQuestion(msg) {
+  const tail = String(msg || '').replace(/[\s*_`>|]+$/g, '').slice(-300);
+  if (/[?？]$/.test(tail)) return true;
+  const last = tail.split('\n').filter(l => l.trim()).slice(-3).join('\n');
+  return /(알려\s*주세요|알려\s*주시면|선택해\s*주세요|골라\s*주세요|말씀해\s*주세요|정해\s*주세요|승인해\s*주세요|할까요|하시겠습니까|원하시나요|어느 쪽|which (one|option)|would you like|let me know|please (choose|confirm)|\bA\s*\/\s*B(\s*\/\s*C)?\b|A, B, C 중)/i.test(last);
+}
+

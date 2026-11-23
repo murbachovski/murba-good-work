@@ -12,7 +12,7 @@ description: "Use when a murba run was interrupted (session ended, context compa
 
 ## 순서
 1. `murba status` — 현재 phase, 남은 조건, AC 요약
-2. `git status --short && git log --oneline -15 && git branch --show-current`
+2. `git status --short`, `git log --oneline -15`, `git branch --show-current` (각각 따로 실행)
    - 작업 브랜치(`feat/*`)가 아니면 해당 브랜치로 이동
    - 커밋 안 된 변경이 있으면: 현재 phase가 build/fix면 builder 작업 중이었던 것 → `git diff`를 보고 계속할지 `git stash`할지 판단(stash는 되돌릴 수 있음)
 3. `tail -20 .murba/events.jsonl`, 현재 phase의 `handoff/<phase>.md`(있으면), `decisions.tsv` 마지막 줄들

@@ -174,5 +174,20 @@
     "stop_blocks_per_run": 12,
     "fix_rounds_per_ac": 3,
     "no_improvement_stop": 2
-  }
+  },
+  "chain": [
+    "triage",
+    "grill",
+    "spec-review",
+    "revise",
+    "approve",
+    "setup",
+    "test-write",
+    "build",
+    "evaluate",
+    "qa",
+    "browser",
+    "report",
+    "done"
+  ]
 }

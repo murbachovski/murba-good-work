@@ -1,7 +1,7 @@
 // Stop gate: keep the unattended pipeline going until the current phase's artifacts exist. Fail-open.
 import fs from 'node:fs';
 import path from 'node:path';
-import { MACHINE, projectDir, readState, readStdin, updateState, appendEvent, appendDecision, logHook, murbaDir, missingRequires, nextActionHint } from './lib/core.mjs';
+import { endsWithQuestion, MACHINE, projectDir, readState, readStdin, updateState, appendEvent, appendDecision, logHook, murbaDir, missingRequires, nextActionHint } from './lib/core.mjs';
 
 function allow() { process.exit(0); }
 function block(reason) { process.stdout.write(JSON.stringify({ decision: 'block', reason })); process.exit(0); }
@@ -11,16 +11,27 @@ function main() {
   const proj = projectDir(input);
   if (!fs.existsSync(murbaDir(proj)) || fs.existsSync(path.join(murbaDir(proj), 'disable'))) allow();
   const st = readState(proj);
-  if (!st || !st.auto || st.phase === 'done') { logHook(proj, 'stop-gate', 'skipped', { phase: st && st.phase, auto: st && st.auto }); allow(); }
+  const headless = !!st && st.mode === 'headless';
+  if (!st || st.phase === 'done' || (!st.auto && !headless)) { logHook(proj, 'stop-gate', 'skipped', { phase: st && st.phase, auto: st && st.auto }); allow(); }
 
   const bg = Array.isArray(input.background_tasks) ? input.background_tasks : [];
   if (bg.length) { logHook(proj, 'stop-gate', 'deferred', { phase: st.phase, background: bg.length }); allow(); }
 
   const limits = MACHINE.limits;
   const msg = String(input.last_assistant_message || '').trim();
-  if (/[?？]\s*$/.test(msg) || /할까요\s*[?？]?\s*$/.test(msg)) {
+  const reportExists = fs.existsSync(path.join(murbaDir(proj), 'report.md'));
+  const asked = endsWithQuestion(msg);
+  let headlessReason = null;
+  if (headless && asked && !(reportExists && ['report', 'approve'].includes(st.phase))) {
+    headlessReason = 'headless: 묻지 말고 murba decide로 결정 큐에 기록한 뒤 추천안으로 계속하거나, 진행 불가면 murba phase report --skip 으로 보고서를 쓰고 끝내라';
+  } else if (asked) {
     appendDecision(proj, { phase: st.phase, cls: 'taste', decision: '질문으로 턴 종료 시도', why: msg.slice(-200), cost: '추천안으로 진행됨. 보고서에서 확인' });
     logHook(proj, 'stop-gate', 'warn', { phase: st.phase, reason: 'question-ending' });
+  }
+  // headless before auto: only keep going until a report exists (or a question was asked)
+  if (headless && !st.auto && !headlessReason) {
+    if (reportExists) { logHook(proj, 'stop-gate', 'released', { phase: st.phase, reason: 'headless-report-exists' }); allow(); }
+    headlessReason = `headless: 보고서가 아직 없다. 묻지 말고 계속하라. ${nextActionHint(st)}. 진행 불가면 murba decide로 기록하고 murba phase report --skip "<사유>" 후 murba report`;
   }
 
   // budget (time)
@@ -47,7 +58,8 @@ function main() {
     s.counters.stop[s.phase] = (s.counters.stop[s.phase] || 0) + 1;
     s.counters.stop_total = (s.counters.stop_total || 0) + 1;
   });
-  logHook(proj, 'stop-gate', 'blocked', { phase: st.phase, missing: miss });
+  logHook(proj, 'stop-gate', 'blocked', { phase: st.phase, missing: miss, reason: headlessReason ? 'headless' : 'auto' });
+  if (headlessReason) block(`[murba] ${headlessReason}`);
   const need = miss.length ? `남은 조건: ${miss.join(', ')}.` : '조건은 충족됨 — 다음 단계로 전이하세요.';
   block(`[murba] 자동 진행 중(${st.phase}). ${need} ${nextActionHint(st)}. 질문이 있으면 \`murba decide\`로 기록하고 추천안으로 계속하세요.`);
 }

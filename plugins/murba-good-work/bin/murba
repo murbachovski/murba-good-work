@@ -9,7 +9,7 @@ const here = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)));
 const core = await import(pathToFileURL(path.join(here, '..', 'scripts', 'lib', 'core.mjs')).href);
 const { renderReport } = await import(pathToFileURL(path.join(here, '..', 'scripts', 'lib', 'report.mjs')).href);
 const { globToRegex } = await import(pathToFileURL(path.join(here, '..', 'scripts', 'lib', 'patterns.mjs')).href);
-const { MACHINE, projectDir, murbaDir, statePath, readState, updateState, appendEvent, appendDecision, DECISION_CLASSES, missingRequires, nextActionHint, lastVerdict, nonHeldAcs, sha256File, sha256Text, nowIso, pluginVersion, isHeadless, withLock, writeJsonAtomic } = core;
+const { CHAIN, MACHINE, projectDir, murbaDir, statePath, readState, updateState, appendEvent, appendDecision, DECISION_CLASSES, missingRequires, nextActionHint, lastVerdict, nonHeldAcs, sha256File, sha256Text, nowIso, pluginVersion, isHeadless, withLock, writeJsonAtomic } = core;
 
 const proj = projectDir(null);
 const md = murbaDir(proj);
@@ -36,14 +36,18 @@ function positional() {
 }
 function need() { if (!readState(proj)) fail(1, '.murba/state.json 없음 — `murba init` 먼저'); }
 
-const ACRE = /^\s*[-*]\s*(AC-\d+)\s*(\[browser\])?\s*(.+?)\s*$/;
+const ACRE = /^\s*[-*]\s*(AC-\d+)\b\s*(.+?)\s*$/;
 function parseSpecAcs() {
   const p = path.join(md, 'spec.md');
   if (!fs.existsSync(p)) fail(2, 'spec.md 없음');
   const acs = [];
   for (const line of fs.readFileSync(p, 'utf8').split('\n')) {
     const m = ACRE.exec(line);
-    if (m) acs.push({ id: m[1], browser: !!m[2], text: m[3] });
+    if (!m) continue;
+    const rest = m[2];
+    const after = /\[after:\s*([^\]]+)\]/i.exec(rest);
+    const text = rest.replace(/\[browser\]/ig, '').replace(/\[after:[^\]]*\]/ig, '').replace(/\s{2,}/g, ' ').trim();
+    acs.push({ id: m[1], browser: /\[browser\]/i.test(rest), after: after ? after[1].split(/[\s,]+/).filter(Boolean) : [], text });
   }
   return acs;
 }
@@ -95,6 +99,31 @@ const cmds = {
     const next = positional()[1];
     if (!next) fail(1, 'usage: murba phase <next>');
     let result;
+    const skipReason = opt('--skip');
+    if (skipReason !== undefined) {
+      if (skipReason === true || !String(skipReason).trim()) fail(1, 'usage: murba phase <target> --skip "<사유>"');
+      updateState(proj, st => {
+        const cur = st.phase;
+        if (!MACHINE.phases[next]) fail(1, `알 수 없는 단계 ${next}`);
+        const ci = CHAIN.indexOf(cur === 'fix' ? 'evaluate' : cur), ti = CHAIN.indexOf(next);
+        if (ci < 0 || ti <= ci) fail(2, `생략 거부: ${cur} → ${next}는 기본 순서상 앞으로 가는 전이가 아님`);
+        if (ti > CHAIN.indexOf('report')) fail(2, '생략 거부: report는 생략할 수 없음(먼저 report로 가서 보고서를 쓴다)');
+        const path_ = CHAIN.slice(ci, ti);
+        if (path_.includes('approve')) {
+          const plan = core.readJsonFile(path.join(md, 'run-plan.json'), {});
+          if (plan.task_type !== 'investigation' && (st.ac_order || []).length) fail(2, '생략 거부: approve는 조사(investigation) 작업이거나 AC가 없을 때만 생략 가능');
+        }
+        st.skipped = st.skipped || {};
+        for (const ph of path_) st.skipped[ph] = String(skipReason);
+        st.phase = next;
+        if (path_.some(ph => MACHINE.phases[ph].auto) || MACHINE.phases[next].auto) st.auto = true;
+        if (next === 'build') st.current_ac = null;
+        appendEvent(proj, 'skip', { from: cur, to: next, phases: path_, reason: String(skipReason) });
+        result = st;
+      });
+      out(`생략 기록 후 이동: → ${next}`);
+      return out(nextActionHint(result));
+    }
     updateState(proj, st => {
       const cur = st.phase;
       const def = MACHINE.phases[cur];
@@ -144,18 +173,22 @@ const cmds = {
           return;
         }
         const nac = {};
-        for (const a of acs) nac[a.id] = { ...(st.ac[a.id] || { verdicts: [], fix_rounds: 0, held: false }), text: a.text, browser: a.browser };
+        for (const a of acs) nac[a.id] = { ...(st.ac[a.id] || { verdicts: [], fix_rounds: 0, held: false }), text: a.text, browser: a.browser, after: a.after };
         st.ac = nac; st.ac_order = acs.map(a => a.id);
       });
       appendEvent(proj, 'ac_sync', { count: acs.length });
       return out(`AC ${acs.length}개 동기화: ${acs.map(a => a.id + (a.browser ? '[browser]' : '')).join(', ')}`);
     }
     if (sub === 'next') {
-      let picked = null;
+      let picked = null; let blocked = [];
       updateState(proj, st => {
-        picked = nonHeldAcs(st).find(x => lastVerdict(st.ac[x]) !== 'VERIFIED') || null;
+        const remaining = nonHeldAcs(st).filter(x => lastVerdict(st.ac[x]) !== 'VERIFIED');
+        const depOk = d => !st.ac[d] || st.ac[d].held || lastVerdict(st.ac[d]) === 'VERIFIED';
+        picked = remaining.find(x => (st.ac[x].after || []).every(depOk)) || null;
+        if (!picked) blocked = remaining.map(x => `${x}(after ${(st.ac[x].after || []).filter(d => !depOk(d)).join(',')})`);
         st.current_ac = picked;
       });
+      if (!picked && blocked.length) fail(2, `남은 AC가 있지만 선행 AC 미검증으로 진행 불가: ${blocked.join(' ')}`);
       if (!picked) fail(2, '남은 AC 없음');
       appendEvent(proj, 'ac_next', { id: picked });
       const st = readState(proj);
@@ -173,6 +206,7 @@ const cmds = {
         a.verdicts.push({ verdict, sha, evidence: evidence === true ? '' : evidence, at: nowIso(), final });
         if (verdict === 'VERIFIED') a.last_pass_sha = sha;
         if (final) { a.final_verdict = { verdict, sha, evidence, at: nowIso() }; st.final_sha = sha; }
+        if (final && verdict === 'VERIFIED' && a.held) { a.held = false; a.unheld_by_final = true; delete a.hold_reason; appendEvent(proj, 'ac_unhold', { id, by: 'final' }); }
       });
       appendEvent(proj, 'verdict', { id, verdict, sha, final });
       return out(`${id} ${verdict}${final ? ' (final)' : ''} @ ${sha}`);
@@ -185,7 +219,13 @@ const cmds = {
       appendEvent(proj, 'ac_hold', { id, reason });
       return out(`${id} 보류: ${reason}`);
     }
-    fail(1, 'usage: murba ac <sync|next|verdict|hold>');
+    if (sub === 'unhold') {
+      if (!id) fail(1, 'usage: murba ac unhold <ID>');
+      updateState(proj, st => { const a = st.ac[id]; if (!a) fail(1, `AC 없음: ${id}`); if (!a.held) fail(2, `${id}는 보류 상태가 아님`); a.held = false; delete a.hold_reason; });
+      appendEvent(proj, 'ac_unhold', { id, by: 'cli' });
+      return out(`${id} 보류 해제`);
+    }
+    fail(1, 'usage: murba ac <sync|next|verdict|hold|unhold>');
   },
 
   'fix-round'() {

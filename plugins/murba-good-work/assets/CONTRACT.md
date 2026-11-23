@@ -13,7 +13,7 @@
 | `state.json` | `murba` CLI만 | `{schema:1, plugin_version, phase, auto:false, approved:false, mode:"interactive"\|"headless", started_at, ac:{<ID>:{text, browser:bool, held:false, verdicts:[{verdict,sha,evidence,at}], final_verdict, fix_rounds, last_pass_sha}}, ac_order:[], current_ac, final_sha, spec_hash, test_hashes:{path:sha256}, counters:{stop:{<phase>:n}, stop_total:n, subagents:n}, budget:{max_minutes:120, max_subagents:40, max_fix_rounds_total:15}}` |
 | `events.jsonl` | `murba` CLI, hooks | 추가 전용 `{ts, kind, ...}` |
 | `run-plan.json` | 오케스트레이터(triage 응답 기록) | task_type, scope_mode, phases, agents, throughput, budget |
-| `spec.md` | 오케스트레이터 | 기획서. AC 줄 형식: `- AC-001 [browser] WHEN … THE SYSTEM SHALL …` (`[browser]`는 선택) |
+| `spec.md` | 오케스트레이터 | 기획서. AC 줄 형식: `- AC-001 [browser] [after:AC-002] WHEN … THE SYSTEM SHALL …` (태그는 선택, 순서 무관) |
 | `ac-test-map.md` | 오케스트레이터 | AC → 테스트 파일 → 검증 방법 |
 | `decisions.tsv` | `murba decide` | 열: ts, phase, class, decision, why, evidence, cost_if_wrong |
 | `handoff/<phase>.md` | 오케스트레이터 | 목표·접근·완료·현재 실패·다음 1개·근거 파일 |
@@ -31,10 +31,12 @@
 | `murba init [--headless] [--auto-approve]` | `.murba/` 생성, state 초기화(phase=triage), `.gitignore`에 `.murba/` 추가 |
 | `murba status [--json]` | phase, 다음 가능 단계, 남은 조건, AC 요약 |
 | `murba phase <next>` | 현재 phase의 requires 확인 → 전이표 확인 → 기록. `setup` 진입 시 `auto=true` |
+| `murba phase <target> --skip "<사유>"` | 기본 순서(`chain`)상 앞의 단계로 건너뜀. 지나간 단계는 `state.skipped[단계]=사유`로 기록하고 requires 검사 안 함. `report` 너머로는 불가. `approve` 생략은 investigation 또는 AC 없음일 때만. 보고서에 ⏸ 행 |
 | `murba ac sync` | spec.md의 AC 줄을 파싱해 state.ac 갱신(approve 이후엔 거부: ACCEPTANCE_EDITED) |
-| `murba ac next` | 다음 미완료 AC를 current_ac로 지정해 출력, 없으면 종료 코드 2 |
+| `murba ac next` | 선행 AC(`[after:AC-xxx]`)가 모두 VERIFIED/보류인 다음 미완료 AC를 current_ac로 지정. 없으면 종료 코드 2(남은 AC가 선행 미충족이면 그 목록 출력). current_ac=null이면 `@current_ac_verdict`는 보류 안 된 모든 AC에 판정이 있을 때 충족 |
+| `murba ac unhold <ID>` | 보류 해제 |
 | `murba ac verdict <ID> <VERIFIED\|NOT_VERIFIED\|INCONCLUSIVE> --sha <sha> [--evidence <path>] [--final]` | 판정 기록. VERIFIED면 last_pass_sha 갱신 |
-| `murba ac hold <ID> --reason <r>` | 보류(보고서에 ❌) |
+| `murba ac hold <ID> --reason <r>` | 보류(보고서에 ❌). `--final VERIFIED` 판정이 오면 자동 해제(`unheld_by_final`) |
 | `murba fix-round <ID>` | fix_rounds+1, 3 초과 시 종료 코드 3 |
 | `murba approve` | spec_hash 고정, approved=true. headless는 `--auto-approve`로 init된 경우만 |
 | `murba lock-tests <glob...>` | 테스트 파일 sha256을 test_hashes에 기록 |
@@ -47,7 +49,7 @@
 ## hook 입력·출력
 - SessionStart: `.murba/state.json` 있으면 `hookSpecificOutput.additionalContext` 2,000자 이하(첫 줄·끝 줄에 phase와 다음 행동)
 - PreToolUse: 차단은 `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"..."}}`
-- Stop: 차단은 최상위 `{"decision":"block","reason":"..."}`. exit 2 사용 금지
+- Stop: 차단은 최상위 `{"decision":"block","reason":"..."}`. exit 2 사용 금지. headless(`state.mode=headless`)면 승인 전 단계에서도 작동: 질문으로 끝나거나 report.md가 없으면 차단(단계당 3·전체 12회 상한 공유). 보고서가 있고 approve/report 단계면 통과
 - `agent_type` 값: `murba-good-work:builder` 등(접두 포함). 메인 세션이면 없음
 - 에이전트 이름: `triage`, `spec-reviewer`, `test-writer`, `builder`, `evaluator`, `pr-reviewer`
 

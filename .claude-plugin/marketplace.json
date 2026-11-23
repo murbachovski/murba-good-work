@@ -1,6 +1,8 @@
 {
   "name": "murba-good-work",
-  "owner": { "name": "murbachovski" },
+  "owner": {
+    "name": "murbachovski"
+  },
   "plugins": [
     {
       "name": "murba-good-work",
@@ -9,5 +11,6 @@
       "version": "0.1.0",
       "category": "workflow"
     }
-  ]
+  ],
+  "description": "murba-good-work: 기획 → 검토 → 테스트 → 구현 → 검증 → QA → 실제 브라우저 확인까지 증거 기반으로 자동 진행하는 Claude Code 플러그인"
 }

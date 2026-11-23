@@ -175,6 +175,10 @@ export function analyzeBash(cmd) {
     }
     if (c0 === 'eval' && /base64|\\x[0-9a-f]{2}/i.test(s.text)) return { deny: true, reason: 'eval 난독화', rule: 'obfuscation' };
     if (SHELLS.includes(c0) && w.includes('-c') && /base64|\$\(.*curl|\\x[0-9a-f]{2}/i.test(s.text)) return { deny: true, reason: '셸 -c 난독화', rule: 'obfuscation' };
+    if (SHELLS.includes(c0) && w.includes('-c')) {
+      const inner = w[w.indexOf('-c') + 1];
+      if (inner) { const r = analyzeBash(inner); if (r && r.deny) return { ...r, reason: `${c0} -c 안: ${r.reason}` }; }
+    }
 
     // rm
     if (c0 === 'rm') {

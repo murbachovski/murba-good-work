@@ -1,14 +1,16 @@
 # build → evaluate → fix 루프 (6 구현 + 8 검증)
 
-AC를 **하나씩** 처리한다.
+AC를 **하나씩** 처리한다. 아래는 절차 요약이다(그대로 셸에 치지 않는다. Bash는 단순 명령 1개씩).
 
 ```
-loop:
-  murba budget                         (3이면 report로)
-  ID=$(murba ac next) || break         (종료 코드 2 = 남은 AC 없음 → qa)
+반복:
+  murba budget                → 종료 코드 3이면 report로
+  murba ac next               → 출력된 AC ID를 받는다. 종료 코드 2 = 남은 AC 없음 → qa
   build(ID) → evaluate(ID)
   NOT_VERIFIED/INCONCLUSIVE → fix(ID) → evaluate(ID)   (최대 3라운드)
 ```
+- `murba ac next`는 `[after:AC-xxx]` 선후관계를 지킨다. **순서를 맞추려고 임시 보류(hold)하지 않는다.** 순서 문제가 생기면 `murba decide taste "AC 순서"`로 기록하고 선행 AC를 먼저 진행한다
+- 어쩔 수 없이 임시 보류를 썼다면 선행 AC가 VERIFIED 된 뒤 `murba ac unhold <ID>`로 해제한다. qa의 `--final` VERIFIED는 보류를 자동 해제한다
 
 ## build(ID)
 - `murba-good-work:builder` 디스패치. kickoff 입력:
@@ -23,9 +25,11 @@ loop:
 AC별 판정은 진행 확인용이다. **오케스트레이터가 직접** 실행해 종료 코드로 정한다. 독립 평가자(evaluator)는 qa·browser 단계에서 전체를 본다(비용 절감, 결과는 같은 실행 증거).
 1. `murba check-tests` — 종료 코드 2면 테스트 변조 → 그 커밋 `git revert --no-edit`, builder에 "테스트 수정 금지" 재지시
 2. 해당 AC 테스트 + 그 AC의 숨긴 검사를 실행하고 출력을 증거 파일로 남긴다:
-   `node --test --test-name-pattern "AC-xxx" <테스트 glob> > .murba/evidence/AC-xxx-<짧은SHA>.log 2>&1; echo "exit=$?" >> 같은 파일`
+   - `git rev-parse --short HEAD` → 출력된 짧은 SHA를 아래에 그대로 쓴다
+   - `node --test --test-name-pattern "AC-xxx" <테스트 glob> > .murba/evidence/AC-xxx-<짧은SHA>.log 2>&1` → 종료 코드는 도구 결과에 나온다
+   - 숨긴 검사도 같은 방식으로 `.murba/evidence/AC-xxx-<짧은SHA>-hidden.log`
 3. 판정: 종료 코드 0 → VERIFIED / 0 아님 → NOT_VERIFIED / 테스트가 0개 실행됨·명령 실패 → INCONCLUSIVE(통과 아님)
-4. 기록: `murba ac verdict <ID> <판정> --sha $(git rev-parse HEAD) --evidence .murba/evidence/AC-xxx-<짧은SHA>.log`
+4. 기록: `git rev-parse HEAD`의 출력 SHA를 복사해 `murba ac verdict <ID> <판정> --sha <SHA> --evidence .murba/evidence/AC-xxx-<짧은SHA>.log`
 5. INCONCLUSIVE가 2번 연속이면 그때만 `murba-good-work:evaluator`를 불러 원인을 본다(입력: AC 본문, base·현재 SHA, 증거 파일 경로)
 6. 다음:
    - VERIFIED → 다음 AC: `murba phase build` (남은 AC 없으면 `murba phase qa`)
@@ -47,3 +51,4 @@ AC별 판정은 진행 확인용이다. **오케스트레이터가 직접** 실�
 | "테스트를 보여주면 더 빨리 고침" | 테스트에 맞춘 꼼수가 나온다. 관찰된 동작만 준다 |
 | "4라운드면 될 것 같다" | 3라운드 상한. 보류하고 다음 AC |
 | "통과한 AC도 더 다듬자" | 통과한 결과는 다시 고치지 않는다 |
+| "순서 때문에 잠깐 hold" | hold는 실패 상한용. 순서는 `[after:]`와 `murba ac next` |

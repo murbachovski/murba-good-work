@@ -27,7 +27,9 @@ export function buildMarkdown(proj) {
   const verified = ids.filter(id => acStatus(id) === 'VERIFIED' && st.ac[id].final_verdict);
   const failed = ids.filter(id => ['NOT_VERIFIED', 'INCONCLUSIVE', 'HELD'].includes(acStatus(id)));
   const unverified = ids.filter(id => !st.ac[id].held && !st.ac[id].final_verdict);
-  const skipped = Object.entries(plan.phases || {}).filter(([, v]) => typeof v === 'string' ? v.startsWith('n/a') : (v && v.skip)).map(([k, v]) => `${k}: ${typeof v === 'string' ? v : v.reason || 'n/a'}`);
+  const skippedState = Object.entries(st.skipped || {}).map(([k, v]) => `${k}: ${v}`);
+  const skippedPlan = Object.entries(plan.phases || {}).filter(([, v]) => typeof v === 'string' ? v.startsWith('n/a') : (v && v.skip)).map(([k, v]) => `${k}: ${typeof v === 'string' ? v : v.reason || 'n/a'}`);
+  const skipped = [...skippedState, ...skippedPlan.filter(s => !skippedState.some(x => x.split(':')[0] === s.split(':')[0]))];
   const tampered = ev.filter(e => e.kind === 'tests_tampered' || e.kind === 'acceptance_edited');
   const outOfScope = ev.filter(e => e.kind === 'out_of_scope');
   const flaky = ev.filter(e => e.kind === 'flaky');
@@ -56,7 +58,8 @@ export function buildMarkdown(proj) {
     const i = order.indexOf(ph);
     const visited = ph === 'triage' || entered[ph];
     let s = '—';
-    if (ph === st.phase) s = st.phase === 'done' ? '✅' : (missingRequires(proj, st).length ? '⚠️ 진행 중' : '✅ 조건 충족');
+    if (st.skipped && st.skipped[ph] !== undefined) s = `⏸ 생략: ${cell(st.skipped[ph])}`;
+    else if (ph === st.phase) s = st.phase === 'done' ? '✅' : (missingRequires(proj, st).length ? '⚠️ 진행 중' : '✅ 조건 충족');
     else if (visited && i < curIdx) s = '✅';
     else if (visited) s = '✅';
     L.push(`| ${ph} | ${MACHINE.phases[ph].flow} | ${s} | ${entered[ph] || (ph === 'triage' ? st.started_at : '')} |`);
