@@ -167,7 +167,7 @@ test('v0.1.2 r1: no-commit repo records the real reason; ripgrep (if installed) 
   if (rg.status !== 0) { t.skip('rg not installed'); return; }
   const q = seeded(); m(q, ['init']);
   write(q, '.murba/hidden/h.test.js', 'HIDDEN_MARK\n'); write(q, 'src/x.js', 'HIDDEN_MARK\n');
-  const out = spawnSync('rg', ['-l', 'HIDDEN_MARK'], { cwd: q, encoding: 'utf8' }).stdout;
+  const out = spawnSync('rg', ['-l', 'HIDDEN_MARK', '.'], { cwd: q, encoding: 'utf8' }).stdout; // explicit path: with piped stdin rg would search stdin
   assert.match(out, /src\/x\.js/); assert.doesNotMatch(out, /\.murba/);
 });
 
