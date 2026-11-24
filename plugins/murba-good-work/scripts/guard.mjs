@@ -7,6 +7,7 @@ import { analyzeBash, segWriteTargets, redirectTargets, gitSubIndex, bashWriteRe
 
 // Ledger files: only the murba CLI (and this guard, for `caller`) changes them. Write/Edit and Bash writes are refused for everyone.
 const LEDGER = ['.murba/state.json', '.murba/events.jsonl', '.murba/decisions.tsv', '.murba/caller', '.murba/state.sha256', '.murba/approve-token'];
+const AGENT_REPORT_DIRS = ['test-writer', 'builder', 'evaluator', 'pr-reviewer'];
 const isStateFile = rel => LEDGER.some(c => relIs(rel, c)) || relUnder(rel, '.murba/logs');
 const isMurbaRoot = rel => relIs(rel, '.murba') || rel === '.murba/*' || rel === '.murba/**';
 // murba subcommands a subagent may run (read-only). evaluator may also create an evidence run folder.
@@ -139,7 +140,8 @@ function checkAgentRules(name, tool, ti, proj, st) {
   const rels = toolRels(proj, tool, ti);
   const isWrite = WRITE_TOOLS.includes(tool);
   const isRead = READ_TOOLS.includes(tool);
-  const allowedMurbaWrite = rel => rel.startsWith(ownReports) || (self === 'test-writer' && rel.startsWith('.murba/hidden/')) || (self === 'evaluator' && rel.startsWith('.murba/evidence/'));
+  const inDir = (rel, d) => rel === d || rel.startsWith(d + '/');
+  const allowedMurbaWrite = rel => inDir(rel, ownReports.slice(0, -1)) || (self === 'test-writer' && inDir(rel, '.murba/hidden')) || (self === 'evaluator' && inDir(rel, '.murba/evidence'));
 
   if (isWrite) {
     for (const rel of rels) {
@@ -220,6 +222,18 @@ function main() {
     const r = analyzeBash(ti.command, proj);
     if (r) block(r.reason, r.rule, 'irreversible');
   }
+  // 2a) main session: subagent report folders are the subagents' evidence of independent work; tests and hidden checks are written by test-writer
+  const mainWriteReason = rel => {
+    if (name || !rel) return null;
+    if (AGENT_REPORT_DIRS.some(a => relIs(rel, `.murba/reports/${a}`) || relUnder(rel, `.murba/reports/${a}`))) return [`${rel}은 그 서브에이전트만 쓴다(독립 작업의 증거). 해당 에이전트를 불러 쓰게 한다`, 'agent-report'];
+    if (relUnder(rel, '.murba/hidden') || relIs(rel, '.murba/hidden')) return [`숨긴 검사(${rel})는 test-writer가 쓴다`, 'main-hidden'];
+    if (st.phase === 'test-write' && isTestPath(rel) && !relUnder(rel, '.murba')) return [`테스트(${rel})는 test-writer가 AC만 보고 쓴다. murba-good-work:test-writer를 부른다`, 'main-test-write'];
+    return null;
+  };
+  if (!name) {
+    const rels = WRITE_TOOLS.includes(tool) ? toolRels(proj, tool, ti) : tool === 'Bash' ? bashWriteRels(String(ti.command || ''), proj) : [];
+    for (const rel of rels) { const r = mainWriteReason(rel); if (r) block(r[0], r[1], null); }
+  }
   // 2) secrets, ledger files — everyone
   if (WRITE_TOOLS.includes(tool)) {
     for (const rel of toolRels(proj, tool, ti)) {
@@ -245,7 +259,7 @@ function main() {
           if (oldCmds.has(norm(c))) continue;
           const r = analyzeBash(c, proj);
           if (r) block(`스크립트(${rel}) 안 명령: ${r.reason}`, r.rule, 'irreversible');
-          for (const w of bashWriteRels(c, proj)) if (isStateFile(w) || isMurbaRoot(w)) block(`스크립트(${rel}) 안 명령이 ${w}을 바꿈 — murba CLI로만 변경`, 'state-file', null);
+          for (const w of bashWriteRels(c, proj)) { if (isStateFile(w) || isMurbaRoot(w)) block(`스크립트(${rel}) 안 명령이 ${w}을 바꿈 — murba CLI로만 변경`, 'state-file', null); const mr = mainWriteReason(w); if (mr) block(`스크립트(${rel}) 안 명령: ${mr[0]}`, mr[1], null); }
           const inv = murbaInvocations(c);
           if (inv.some(a => a[0] === 'approve')) block(`스크립트(${rel}) 안 murba approve — approve는 사람이 직접 실행`, 'approve-human', null);
           if (inv.some(a => a[0] === 'init') && fs.existsSync(path.join(murbaDir(proj), 'state.json'))) block(`스크립트(${rel}) 안 murba init — 진행 중인 실행의 재초기화는 사람이 직접`, 'reinit-human', null);
@@ -263,6 +277,7 @@ function main() {
         }
         for (const w of sc.writes) for (const v of pathVariants(proj, w)) {
           if (isStateFile(v)) block(`스크립트(${rel})가 ${v}을 씀 — murba CLI로만 변경`, 'state-file', null);
+          { const mr = mainWriteReason(v); if (mr) block(`스크립트(${rel}): ${mr[0]}`, mr[1], null); }
           if (name === 'builder' && isTestPath(v)) block(`builder 스크립트(${rel})가 테스트 파일(${v})을 씀`, 'agent:builder', null);
         }
         if (name === 'builder') for (const rd of sc.reads) for (const v of pathVariants(proj, rd)) if (reachesHidden(v)) block(`builder 스크립트(${rel})가 숨긴 검사(${v})를 읽음`, 'agent:builder', null);

@@ -9,7 +9,7 @@ color: red
 Read ${CLAUDE_PLUGIN_ROOT}/assets/worker.md first.
 
 # 역할
-새 컨텍스트에서 **실행 증거로만** 판정한다. builder의 설명·주장은 받지 않는다. 코드·테스트를 고치지 않는다(guard 차단). 파일 쓰기 도구가 없으므로 상세 보고는 응답에 담고, 증거 파일은 Bash 실행 결과로만 `.murba/evidence/` 아래에 생긴다.
+새 컨텍스트에서 **실행 증거로만** 판정한다. builder의 설명·주장은 받지 않는다. 코드·테스트를 고치지 않는다(guard 차단). **판정 보고를 반드시 `.murba/reports/evaluator/<단계>.md`(예: `qa.md`)에 Write로 남긴다**: AC별 판정·근거 명령·증거 경로. BLOCKED여도 그 사실과 거부된 명령을 쓴다. 이 파일은 독립 평가의 증거라 메인 세션은 쓸 수 없고, 없으면 CLI가 qa를 떠나지 못하게 한다(`EVALUATOR_REPORT_MISSING`). 증거 파일은 Bash 실행 결과로 `.murba/evidence/` 아래에 생긴다.
 
 # 입력
 - base SHA와 현재 SHA의 diff(`git diff <base>..HEAD`), 대상 AC, `.murba/hidden/`의 숨긴 검사

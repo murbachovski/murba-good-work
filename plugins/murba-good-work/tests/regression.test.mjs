@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { tmpProj, runHook, bash, sub, isDeny } from './helpers.mjs';
+import { tmpProj, runHook, bash, sub, isDeny, agentReport } from './helpers.mjs';
 import { bashWriteTargets } from '../scripts/lib/patterns.mjs';
 
 // R1: `>` inside quotes (JS arrows / comparisons in `node -e`) is not a redirect.
@@ -34,6 +34,7 @@ test('R2 lock-tests includes .murba/hidden', () => {
   fs.writeFileSync(path.join(proj, '.murba', 'hidden', 'h.test.js'), 'x');
   setState(proj, s => { s.phase = 'test-write'; });
   const bin = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'murba');
+  agentReport(proj, 'test-writer');
   const out = execFileSync('node', [bin, 'lock-tests', '.murba/hidden/*.test.js'], { cwd: proj, env: { ...process.env, CLAUDE_PROJECT_DIR: proj }, encoding: 'utf8' });
   assert.match(out, /\.murba\/hidden\/h\.test\.js/);
 });

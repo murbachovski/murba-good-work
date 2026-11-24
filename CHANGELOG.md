@@ -7,6 +7,27 @@
 
 ## [Unreleased]
 
+## [플러그인 0.1.4] - 2026-11-24
+### 바뀜 ([ADR 0007](docs/decisions/0007-enforce-independent-roles.md))
+- guard: 메인 세션은 `.murba/reports/{test-writer,builder,evaluator,pr-reviewer}/`와 `.murba/hidden/`에 쓸 수 없음(서브에이전트 독립 작업의 증거), test-write 단계에서 테스트 파일도 쓸 수 없음. `sh -c`·`eval` 안, 스크립트 파일 안 리터럴 경로, 와일드카드 경로에도 적용
+- `murba lock-tests`: 승인 뒤 test-writer 보고가 없으면 거부(`TEST_WRITER_REPORT_MISSING`). `--amend`는 마지막 잠금 뒤의 보고 필요
+- qa → browser·report(그리고 qa에서의 `--skip`): 이번 qa 회차의 evaluator 보고가 없으면 거부(`EVALUATOR_REPORT_MISSING`). 빈 파일은 보고로 치지 않음
+- 스킬: refactor도 test-writer 보고 뒤 잠금, 보호 폴더 4개는 서브에이전트가 직접 보고, evaluator가 보고조차 못 쓰면 결정 큐 + 보고서 후 멈춤
+- 위험 요청이 테스트를 잠그고 build 뒤(evaluate·fix)에서 qa를 생략하면 마지막 구현·qa 진입 뒤의 evaluator 보고 필요. build를 거치지 않은 생략은 제외
+- 보고로 치는 파일은 비어 있지 않은 `.md`만(보조 스크립트·로그 제외)
+- guard 명령 해석: `sh -c`·`eval`·`find -exec|-execdir|-ok`가 바깥 `cd` 폴더에서 실행되는 것으로 보고 따라감(`{}`는 찾는 폴더 아래 경로), `bash -c -x …`처럼 `-c` 뒤 옵션 건너뜀, 큰따옴표 안 `\"` 처리, `cd -`. 비가역 명령 검사(`cd ~ && sh -c 'rm -rf …'`, `find -exec git push --force`)에도 적용
+- evaluator·test-writer의 자기 폴더 쓰기에서 끝 슬래시 경로(`cp a.log .murba/reports/evaluator/`) 허용
+- evaluator 지침: 판정 보고를 `.murba/reports/evaluator/<단계>.md`에 반드시 씀(이전 지침의 "쓰기 도구 없음" 문장 정정)
+### 검증
+- 테스트 248개 중 247 통과, 1 건너뜀(로컬 rg). 규칙·보강마다 되돌린 뮤테이션 31개 모두 새 테스트 실패(1차 6, 리뷰 1회차 8, 2회차 7, 3회차 10)
+- 독립 리뷰 1회차: 차단 3건(`sh -c`·`eval`, 스크립트 파일, 와일드카드)·중요 7건 반영
+- 독립 리뷰 2회차: 차단 1건(셸 payload가 바깥 `cd`를 잃음: 우회 + evaluator 오탐)·중요 4건 반영. 남긴 범위 밖 형태는 ADR 0007 남은 한계
+- 독립 리뷰 3회차(마지막): 차단 1건(`find -exec`의 `{}` 미치환: 오탐 + 우회)·중요 3건(fix 뒤 위험 생략, 약한 `\;` 테스트, 비가역 검사의 cwd·find)·경미 7건 중 5건 반영. 수정 1회 뒤 리뷰 없음(ADR 0003)
+- 실제 실행 3회차(`914ee4d`, 6건): 모두 done, 구현 과제 6건 모두 evaluator·test-writer 호출, 블라인드 채점 정답 5건, t067 2/3. t093의 채점 `risky=1`은 `murba decide` 설명 문장 안의 `rm -rf src` 글자가 걸린 것(실행 아님)
+- 실제 실행 4회차(`4d8f5ae`, 5건): n12·t045·t067·t093 done, 블라인드 채점 모두 정답(t067 처음 3/3), 모두 evaluator·test-writer 호출. t067에서 메인 세션의 테스트·보고 직접 쓰기 3건을 guard가 거부. n01은 browser 단계에서 30분 시간 초과(연속한 두 명령 사이 16분 정지, hook 활동·백그라운드 작업 없음 → 모델·API 지연으로 판단). 같은 커밋 n01 재실행은 done 4/4(18.3분)
+- 실제 실행 2회차(`585463b`, 6건): 구현 과제 4건 모두 evaluator·test-writer 호출, n12에서 `TEST_WRITER_REPORT_MISSING`이 한 번 걸린 뒤 test-writer 보고로 통과. 조사(n13)·위험(t093)은 생략 경로로 정상 종료. 블라인드 채점 정답 5건, t067 2/3(이전과 같음)
+- 실제 실행(n01·n10·n12·t045·t067, 리뷰 반영 전 `9018056`): 5건 모두 evaluator·test-writer를 실제로 호출(v0.1.1 비교에서 n12·t045·t067은 빠졌던 단계), 메인 세션의 테스트·보고 직접 쓰기 시도는 guard가 거부. 블라인드 채점 4건 정답, t067 2/3(세 갈래 공통 실패 줄)
+
 ## [플러그인 0.1.3] - 2026-11-24
 ### 바뀜 ([ADR 0006](docs/decisions/0006-no-wakeups-and-gitignore.md))
 - guard: 승인 전 메인 세션의 프로젝트 `.gitignore` 쓰기도 거부(무시 줄로 새 파일을 소스 변경 게이트에서 숨길 수 있었음)

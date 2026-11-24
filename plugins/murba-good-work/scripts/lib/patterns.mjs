@@ -199,6 +199,7 @@ export function tokenize(seg) {
   const out = []; let cur = '', q = null, has = false;
   for (let i = 0; i < seg.length; i++) {
     const c = seg[i];
+    if (q === '"' && c === '\\' && /["\\$`]/.test(seg[i + 1] || '')) { cur += seg[++i]; continue; } // bash: \" \\ \$ \` escape inside "..."
     if (q) { if (c === q) q = null; else cur += c; continue; }
     if (c === "'" || c === '"') { q = c; has = true; continue; }
     if (c === '\\') { cur += seg[++i] ?? ''; has = true; continue; }
@@ -287,22 +288,28 @@ const base = t => (t || '').split('/').pop();
 export function shellPayload(w) {
   if (!SHELLS.includes(base(w[0]))) return null;
   const ci = w.findIndex((t, k) => k > 0 && /^-[a-zA-Z]*c[a-zA-Z]*$/.test(t));
-  return ci > 0 && w[ci + 1] !== undefined ? w[ci + 1] : null;
+  if (ci < 0) return null;
+  let pi = ci + 1; // `bash -c -x "..."`, `bash -c -- "..."`: the first non-option word is the payload
+  while (w[pi] !== undefined && /^(--|[-+][a-zA-Z]+)$/.test(w[pi])) { if (w[pi++] === '--') break; }
+  return w[pi] !== undefined ? w[pi] : null;
 }
 
 // Segments with their words and the working directory they run in (tracks `cd` within one command line).
-export function walkSegments(cmd, proj) {
+export function walkSegments(cmd, proj, startCwd) {
   const { segments, heredocs } = splitSegments(String(cmd || ''));
-  let cwd = proj || null;
+  let cwd = startCwd || proj || null, prev = cwd;
   const out = [];
   for (const s of segments) {
     const words = commandWords(tokenize(s.text));
     const c0 = base(words[0]);
     out.push({ ...s, words, c0, cwd });
     if (c0 === 'cd' || c0 === 'pushd') {
-      const t = words.slice(1).find(x => !x.startsWith('-'));
+      const before = cwd;
+      const t = words.slice(1).find(x => !x.startsWith('-') || x === '-');
       if (!t) cwd = os.homedir();
+      else if (t === '-') cwd = prev; // `cd -` returns to the previous directory
       else { const x = expandVars(t, proj, cwd); if (!/\$/.test(x)) cwd = path.resolve(cwd || '/', x); }
+      prev = before;
     }
   }
   return { segs: out, heredocs };
@@ -349,6 +356,32 @@ const DB_FILE_RE = /\.(db|sqlite|sqlite3|db3)$/i;
 const FIND_FILTERS = ['-name', '-iname', '-path', '-ipath', '-wholename', '-iwholename', '-regex', '-iregex', '-newer', '-mtime', '-mmin', '-atime', '-amin', '-ctime', '-cmin', '-size', '-empty', '-user', '-group', '-perm', '-links', '-inum', '-samefile', '-lname', '-ilname'];
 
 // find <roots…> <expression>: roots are the args before the first option/expression token
+// `find R… -exec|-ok <cmd> {} \;|+` and `-execdir|-okdir`: the commands find runs, with `{}` as a path under each root
+// (-exec: in find's cwd; -execdir: in the found file's directory = the root or its parent at depth 0)
+const FIND_EXEC = ['-exec', '-execdir', '-ok', '-okdir'];
+const shq = x => `'${String(x).replace(/'/g, `'\\''`)}'`;
+export function findExecCommands(w, proj, cwd) {
+  const out = [];
+  const roots = findRoots(w);
+  for (let k = 1; k < w.length; k++) {
+    if (!FIND_EXEC.includes(w[k])) continue;
+    let end = k + 1;
+    while (end < w.length && w[end] !== ';' && !(w[end] === '+' && w[end - 1] === '{}') && !FIND_EXEC.includes(w[end])) end++;
+    const sub = w.slice(k + 1, end);
+    if (!sub.length) continue;
+    const inDir = /dir$/.test(w[k]);
+    for (const r of roots) {
+      if (!inDir) { out.push({ cmd: sub.map(x => shq(x.split('{}').join(`${r.replace(/\/+$/, '')}/_found_`))).join(' '), cwd }); continue; }
+      const x = expandVars(r, proj, cwd);
+      if (/\$/.test(x)) continue;
+      const abs = path.resolve(cwd || '/', x);
+      for (const d of [abs, path.dirname(abs)]) out.push({ cmd: sub.map(y => shq(y.split('{}').join('./_found_'))).join(' '), cwd: d });
+    }
+    k = end;
+  }
+  return out;
+}
+
 export function findRoots(w) {
   const roots = [];
   for (let k = 1; k < w.length; k++) { const t = w[k]; if (/^[-(!]/.test(t) || t === '\\(') break; roots.push(t); }
@@ -476,11 +509,11 @@ function inlineCodes(s, heredocs) {
   return out;
 }
 
-export function analyzeBash(cmd, proj = null, depth = 0) {
+export function analyzeBash(cmd, proj = null, depth = 0, startCwd) {
   const raw = String(cmd || '');
   if (/\$\{IFS\}|\$IFS\b/.test(raw)) return deny('난독화된 명령(${IFS})', 'obfuscation');
   if (/:\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/.test(raw)) return deny('fork bomb', 'obfuscation');
-  const { segs, heredocs } = walkSegments(raw, proj);
+  const { segs, heredocs } = walkSegments(raw, proj, startCwd);
 
   // heredoc feeding a shell interpreter
   for (const s of segs) {
@@ -511,7 +544,8 @@ export function analyzeBash(cmd, proj = null, depth = 0) {
     if (payload !== null && /base64|\$\(.*curl|\\x[0-9a-f]{2}/i.test(s.text)) return deny('셸 -c 난독화', 'obfuscation');
     // eval / sh -c payloads are analysed as commands
     const inner = payload !== null ? payload : (c0 === 'eval' ? w.slice(1).join(' ') : null);
-    if (inner && depth < 4) { const r = analyzeBash(inner, proj, depth + 1); if (r && r.deny) return { ...r, reason: `${c0} 안: ${r.reason}` }; }
+    if (inner && depth < 4) { const r = analyzeBash(inner, proj, depth + 1, s.cwd); if (r && r.deny) return { ...r, reason: `${c0} 안: ${r.reason}` }; }
+    if (c0 === 'find' && depth < 4) for (const fx of findExecCommands(w, proj, s.cwd)) { const r = analyzeBash(fx.cmd, proj, depth + 1, fx.cwd); if (r && r.deny) return { ...r, reason: `find -exec 안: ${r.reason}` }; }
     // node -e / python -c / interpreter heredocs: literal commands, deletes and SQL inside the code
     if (depth < 4) for (const [code, kind] of inlineCodes(s, heredocs)) { const r = analyzeScriptContent(code, kind, proj, depth + 1); if (r) return { ...r, reason: `${c0} 코드 안: ${r.reason}` }; }
 
@@ -711,10 +745,19 @@ export function bashWriteTargets(cmd) {
 }
 
 // Write targets as canonical project-relative paths (cd-aware; globs/braces kept as patterns for relIs/relUnder)
-export function bashWriteRels(cmd, proj) {
-  const { segs, heredocs } = walkSegments(cmd, proj);
+// sh -c / bash -lc / eval payloads are followed (their writes count too)
+export function bashWriteRels(cmd, proj, depth = 0, startCwd) {
+  const { segs, heredocs } = walkSegments(cmd, proj, startCwd);
   const out = [];
-  for (const s of segs) for (const t of segWriteTargets(s.text, s.words, heredocs.map(h => h.body))) out.push(...pathVariants(proj, t, s.cwd));
+  for (const s of segs) {
+    for (const t of segWriteTargets(s.text, s.words, heredocs.map(h => h.body))) out.push(...pathVariants(proj, t, s.cwd));
+    if (depth < 3) {
+      const payload = shellPayload(s.words);
+      const inner = payload !== null ? payload : (s.c0 === 'eval' ? s.words.slice(1).join(' ') : null);
+      if (inner) out.push(...bashWriteRels(inner, proj, depth + 1, s.cwd)); // the payload runs in the outer segment's cwd
+      if (s.c0 === 'find') for (const fx of findExecCommands(s.words, proj, s.cwd)) out.push(...bashWriteRels(fx.cmd, proj, depth + 1, fx.cwd));
+    }
+  }
   return out;
 }
 

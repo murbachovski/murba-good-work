@@ -17,7 +17,7 @@
    - 통과해 버리는 AC 테스트 = 아무것도 검사하지 않는 테스트 → test-writer 재실행(그 AC ID와 이유 전달)
    - 문법 오류로 실패 = RED 아님 → 재실행
    - RED 결과는 위 명령으로 `.murba/reports/test-write/red.log`에 저장됨(`tail -40 .murba/reports/test-write/red.log`로 확인)
-4. 잠금: `murba lock-tests 'tests/**' 'e2e/**' '.murba/hidden/**'` (실제 쓴 경로에 맞게)
+4. 잠금: `murba lock-tests 'tests/**' 'e2e/**' '.murba/hidden/**'` (실제 쓴 경로에 맞게). 승인 뒤 test-writer가 쓴 보고(`.murba/reports/test-writer/tests.md`)가 없으면 `TEST_WRITER_REPORT_MISSING`으로 거부한다. 이 단계에서 메인 세션은 테스트 파일을 쓰지 않는다(guard 차단). 고칠 것이 있으면 test-writer를 다시 부른다
 5. 커밋: `git add -A` → `git commit -m "test: add failing acceptance tests"` (명령 2번. hidden은 .murba라 커밋 안 됨)
 6. base SHA 기록: `git rev-parse HEAD` → handoff에 적는다(이후 evaluator diff 기준)
 7. handoff → `murba phase build`

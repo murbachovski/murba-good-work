@@ -14,10 +14,11 @@
    - `git checkout -- <파일>` 로 즉시 복원, `git status --short` 깨끗한지 확인
    - 실패하지 않으면 그 AC 테스트는 "동작 미증명" → `murba decide taste "AC-xxx 테스트 약함" --why "뮤턴트 생존"`
    - 결과 표를 `.murba/reports/qa/mutation.md`
-7. **독립 평가(1회)**: `murba-good-work:evaluator` 디스패치(단계: qa). 입력: spec 경로, base SHA(`git rev-list --max-parents=0 HEAD` 또는 작업 시작 SHA)와 HEAD, `.murba/evidence/`·`.murba/reports/qa/` 경로. 지시: 테스트·숨긴 검사를 직접 다시 실행, diff에서 테스트 조작 규칙(삭제·skip·특정 입력 분기·몽키패치) 확인, AC별 VERIFIED/NOT_VERIFIED/INCONCLUSIVE.
+7. **독립 평가(qa 회차마다 1회. fix 뒤 qa로 돌아오면 다시)**: `murba-good-work:evaluator` 디스패치(단계: qa). 입력: spec 경로, base SHA(`git rev-list --max-parents=0 HEAD` 또는 작업 시작 SHA)와 HEAD, `.murba/evidence/`·`.murba/reports/qa/` 경로. 지시: 테스트·숨긴 검사를 직접 다시 실행, diff에서 테스트 조작 규칙(삭제·skip·특정 입력 분기·몽키패치) 확인, AC별 VERIFIED/NOT_VERIFIED/INCONCLUSIVE, 보고를 `.murba/reports/evaluator/qa.md`에 쓴다. **이 qa 회차에 evaluator 보고가 없으면 `murba phase browser|report`가 `EVALUATOR_REPORT_MISSING`으로 거부한다**(네가 대신 쓸 수 없다: guard 차단).
    - 평가자와 3번의 결정적 판정이 다르면 그 AC는 `--final` INCONCLUSIVE로 다시 기록하고 `murba decide taste "AC-xxx 판정 불일치" --why "<평가자 근거>"`
    - 평가자가 **재현 가능한 결함**(반례 입력 + 실제 출력)을 내면: 평가자에게 반례를 `.murba/reports/evaluator/repro-<AC>.mjs`(결함이면 종료 코드 1)로 남기게 하고, 네가 직접 실행해 확인 → `murba ac verdict <ID> NOT_VERIFIED --sha <HEAD> --evidence <repro> --final` → `murba handoff qa` → **`murba phase fix --ac <ID>`** → build-loop.md의 fix(ID). 그 AC의 evaluate에서는 AC 테스트와 repro 스크립트가 **둘 다** 종료 0이어야 VERIFIED. 이후 qa를 3번부터 다시. `murba phase fix`가 종료 코드 3(수정 상한)이면 보고서에 ❌로 남기고 계속
-   - 평가자가 **BLOCKED(도구 거부 등)** 이면: 평가자가 하려던 명령을 네가 직접 실행해 판정은 기록하되 `murba decide taste "evaluator BLOCKED: 독립 평가 미실시" --why "<거부된 명령>"`. 보고서에서 독립 평가는 **⚠️ 미검증**(✅ 아님)
+   - 평가자가 **BLOCKED(도구 거부 등)** 이면: 평가자는 BLOCKED와 거부된 명령을 보고 파일에 쓴다(그래야 qa를 떠날 수 있다). 네가 그 명령을 직접 실행해 판정은 기록하되 `murba decide taste "evaluator BLOCKED: 독립 평가 미실시" --why "<거부된 명령>"`. 보고서에서 독립 평가는 **⚠️ 미검증**(✅ 아님)
+   - 평가자가 보고 파일조차 못 쓰면(디스패치 실패·턴 소진): 다시 한 번 부른다. 그래도 없으면 `murba decide user-direction "독립 평가 실패: qa를 떠날 수 없음" --why "<원인>"` → `murba report` 후 멈춘다(보고서에 ❌. 판정을 대신 쓰지 않는다)
 8. 상위 목표 검사 1개: spec의 "성공" 줄을 실제 사용 흐름으로 1회 확인(명령 또는 브라우저)
 9. handoff → `[browser]` AC가 있으면 `murba phase browser`, 없으면 `murba phase report`
 

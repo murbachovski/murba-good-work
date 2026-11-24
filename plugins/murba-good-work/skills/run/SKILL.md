@@ -53,7 +53,7 @@ AC 줄 형식(spec.md): `- AC-001 [browser] [after:AC-000] WHEN <조건> THE SYS
 |---|---|
 | feature | 전체 단계 |
 | bug-fix | grill에서 **재현 먼저**: 버그를 드러내는 실패 테스트가 AC. 이후 보통 흐름 |
-| refactor | 기존 테스트가 AC 기준선. test-write에서 기존 테스트를 `murba lock-tests`로 잠그고, 동작 보존(기존 테스트 전부 통과)이 판정 기준 |
+| refactor | 기존 테스트가 AC 기준선. test-write에서 test-writer를 불러 기존 테스트가 AC(동작 보존)를 덮는지 확인·보강하고 `.murba/reports/test-writer/`에 보고하게 한 뒤 `murba lock-tests`로 잠근다(보고 없으면 잠금 거부). 동작 보존(기존 테스트 전부 통과)이 판정 기준 |
 | perf | 변경 전 기준 측정을 `.murba/evidence/baseline-*.log`로 저장한 뒤 진행. AC는 측정 비율(예: 5배 이상 빠름)이며 **같은 입력 5회 이상 측정의 중앙값**으로 판정(최대값·1회 측정 금지, 측정 노이즈로 실패하지 않게). 변경 전·후를 같은 스크립트로 번갈아 측정 |
 | prototype | 기획서는 가볍게, 그래도 AC와 브라우저 증거는 필수 |
 | investigation | triage → grill(질문 목록·조사 범위. spec.md에 **AC 줄을 쓰지 않는다** — 조사 질문은 `Q-1` 형식, `murba ac sync` 안 함) → 조사 결과를 사용자가 정한 경로(없으면 프로젝트 루트 `INVESTIGATION.md`)에 작성(근거 `file:line`·실행 결과), `.murba/reports/investigation.md`에는 그 경로를 기록 → `murba phase report --skip "조사 과제: 구현 없음"` → `murba report`. 소스는 고치지 않는다 |
@@ -70,7 +70,7 @@ Read ${CLAUDE_PLUGIN_ROOT}/assets/worker.md first.
 보고: worker.md 응답 형식. 상세는 .murba/reports/<이름>/ 또는 ---DETAIL---
 목표(반복): <한 줄>
 ```
-응답의 `---DETAIL---` 아래 내용은 네가 `.murba/reports/<이름>/<phase>.md`로 저장한다.
+응답의 `---DETAIL---` 아래 내용은 네가 `.murba/reports/<이름>/<phase>.md`로 저장한다. 단 test-writer·builder·evaluator·pr-reviewer는 보고 파일을 **스스로** 쓴다(그 폴더는 guard가 메인 세션 쓰기를 막는다. 독립 작업의 증거)
 
 ## 상태 코드 처리
 | 코드 | 처리 |

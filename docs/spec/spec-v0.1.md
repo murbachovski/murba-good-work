@@ -47,7 +47,7 @@
 - 7 오케스트레이션 = 이 전이표 + 오케스트레이터 자체
 - 8 검증(AC별 테스트 + 숨긴 검사) / 9 QA(전 AC 재판정 + 전체 회귀 + 뮤테이션 + flaky) / 10 실제 브라우저로 구분한다
 - 사용자 흐름상 5 셋팅이 4보다 먼저 실행된다: 테스트를 돌릴 러너·설정이 먼저 있어야 하고, 이 보호 파일은 builder가 쓸 수 없기 때문
-- 쓰기 도구가 있는 서브에이전트(test-writer, builder)는 상세 보고를 `.murba/reports/<agent>/`에 쓴다. test-writer는 추가로 `.murba/hidden/`에 쓸 수 있다. evaluator·pr-reviewer는 Write를 갖되 guard가 자기 보고 경로(evaluator는 `.murba/evidence/` 포함)로 제한한다. 쓰기 도구가 없는 에이전트(triage, spec-reviewer)는 보고를 응답에 담고 **오케스트레이터가 받아서** `.murba/reports/<agent>/`에 기록한다
+- 쓰기 도구가 있는 서브에이전트(test-writer, builder)는 상세 보고를 `.murba/reports/<agent>/`에 쓴다. test-writer는 추가로 `.murba/hidden/`에 쓸 수 있다. evaluator·pr-reviewer는 Write를 갖되 guard가 자기 보고 경로(evaluator는 `.murba/evidence/` 포함)로 제한한다. 쓰기 도구가 없는 에이전트(triage, spec-reviewer)는 보고를 응답에 담고 **오케스트레이터가 받아서** `.murba/reports/<agent>/`에 기록한다. test-writer·builder·evaluator·pr-reviewer의 보고 폴더는 그 에이전트만 쓰고(guard), `murba lock-tests`는 test-writer 보고를, qa를 떠나는 전이는 그 회차의 evaluator 보고를 요구한다([ADR 0007](../decisions/0007-enforce-independent-roles.md))
 - `run-plan.json`, handoff, `decisions.tsv`, `state.json`, 판정·증거 목록은 **오케스트레이터만** 쓴다
 - `BLOCKED`, `INCONCLUSIVE`, 예산 초과 → 해당 갈래는 결정 큐로, 나머지는 계속
 - 단계 생략은 `murba phase <target> --skip "<사유>"`로만 가능하고, triage를 떠날 때 원장에 고정한 과제 성격이 조사(investigation)이거나 위험 요청(`risky`)일 때만 허용된다. 위험 요청의 생략은 report로만 갈 수 있다([ADR 0004](../decisions/0004-no-pipeline-skip-for-implementation.md)). 구현 작업은 작아도 AC 1~3개로 전 단계를 거친다. build를 건너뛰거나 미검증 AC가 남은 채 evaluate를 건너뛴 실행은 승인 여부와 무관하게 init 이후 구현 파일을 바꿀 수 없다(`--skip`·`report → done`에서 검사, init 때 이미 바뀌어 있던 파일은 기준선, [ADR 0005](../decisions/0005-skipped-runs-and-baseline.md))
