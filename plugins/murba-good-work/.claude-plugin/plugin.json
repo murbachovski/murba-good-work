@@ -1,6 +1,6 @@
 {
   "name": "murba-good-work",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "기획서 승인 후 개발·검증·QA·실제 브라우저 확인까지 멈추지 않고 진행하는 신뢰성 중심 개발 파이프라인. Deterministic hooks, file ledger, execution evidence, independent evaluator.",
   "author": { "name": "murbachovski" },
   "homepage": "https://github.com/murbachovski/murba-good-work",

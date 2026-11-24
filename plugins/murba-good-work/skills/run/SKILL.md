@@ -21,7 +21,7 @@ description: "Use when the user wants a feature, app, bug fix or change built en
 10. **서브에이전트·명령은 전경(foreground)으로만**: Agent 호출에 `run_in_background`를 **넣지 않는다**(문자열 `"false"`를 넣으면 오히려 백그라운드로 돈 사례가 있다). 그래도 백그라운드로 시작되면 완료 알림을 기다려 이어 가고, 질문으로 턴을 끝내지 않는다. Bash `run_in_background`·Monitor로 턴을 끝내지 않는다(headless `-p`는 턴이 끝나면 백그라운드 작업을 기다리다 강제 종료한다). 서버가 필요한 검사는 Playwright `webServer` 설정이나 한 번에 끝나는 스크립트(서버 시작 → 측정 → 종료)로 한다.
 
 ## 시작
-**`.murba/`는 플러그인 상태 폴더이지 소스 변경이 아니다**(gitignore됨). 읽기 전용 조사 과제라도 **항상 `murba init`** 한다.
+**`.murba/`는 플러그인 상태 폴더이지 소스 변경이 아니다**(`.murba/.gitignore`로 git에서 제외. 프로젝트 `.gitignore`는 건드리지 않는다). 읽기 전용 조사 과제라도 **항상 `murba init`** 한다.
 ```bash
 murba status                              # 이미 진행 중이면 resume 스킬 사용(없다는 오류는 정상)
 murba init   # 모드(대화형/headless)와 사전 승인 여부는 CLI가 환경변수로 스스로 판별한다. 직접 환경변수를 확인하지 않는다
@@ -45,7 +45,7 @@ git checkout -b feat/<짧은-slug>          # git 저장소가 아니면 git ini
 
 AC 줄 형식(spec.md): `- AC-001 [browser] [after:AC-000] WHEN <조건> THE SYSTEM SHALL <동작>` — `[browser]`는 화면 확인이 필요한 AC에만. `[after:AC-xxx]`는 그 AC가 정말 다른 AC 구현을 전제할 때만(승인 전 grill/revise에서 붙인다). `murba ac next`가 이 순서를 지킨다.
 
-11. **작은 구현 작업도 파이프라인을 탄다.** 기획서는 짧게(AC 1~3개) 쓰되 승인·테스트 선작성·판정은 생략하지 않는다. `--skip`은 조사 작업과 위험 요청(triage가 run-plan에 `risky: true`로 표시, grill로 넘어갈 때 고정)에만 쓴다. CLI가 그 밖의 생략을 거부한다. 승인·테스트 잠금 전에 구현 파일을 고치면 `murba approve`/`lock-tests`가 `SOURCE_CHANGED_BEFORE_TESTS`로 거부한다.
+11. **작은 구현 작업도 파이프라인을 탄다.** 기획서는 짧게(AC 1~3개) 쓰되 승인·테스트 선작성·판정은 생략하지 않는다. `--skip`은 조사 작업과 위험 요청(triage가 run-plan에 `risky: true`로 표시, grill로 넘어갈 때 고정)에만 쓴다. CLI가 그 밖의 생략을 거부한다. 승인·테스트 잠금 전에 구현 파일을 고치면 `murba approve`/`lock-tests`가 `SOURCE_CHANGED_BEFORE_TESTS`로 거부한다. 생략한 실행(조사·위험 보고)이 구현 파일을 바꾸면 `--skip`·`murba phase done`이 `SOURCE_CHANGED_IN_SKIPPED_RUN`으로 거부한다(재현 스크립트는 프로젝트 밖에). `SOURCE_GATE_ERROR`(git 실패)는 `git status`로 원인을 확인하고, 못 고치면 `murba decide user-direction`으로 남기고 보고서를 쓴다.
 12. **사용자가 요청한 산출물은 `.murba/` 밖에 둔다**(스크립트·보고서·출력 파일). `.murba/`는 원장 전용이고 git에서 제외된다. 조사 결과는 사용자가 정한 경로, 없으면 프로젝트 루트 `INVESTIGATION.md`에 쓰고 `.murba/reports/`에는 그 경로만 적는다.
 
 ## 작업 유형별 진행 (run-plan.json의 task_type)
@@ -57,7 +57,7 @@ AC 줄 형식(spec.md): `- AC-001 [browser] [after:AC-000] WHEN <조건> THE SYS
 | perf | 변경 전 기준 측정을 `.murba/evidence/baseline-*.log`로 저장한 뒤 진행. AC는 측정 비율(예: 5배 이상 빠름)이며 **같은 입력 5회 이상 측정의 중앙값**으로 판정(최대값·1회 측정 금지, 측정 노이즈로 실패하지 않게). 변경 전·후를 같은 스크립트로 번갈아 측정 |
 | prototype | 기획서는 가볍게, 그래도 AC와 브라우저 증거는 필수 |
 | investigation | triage → grill(질문 목록·조사 범위. spec.md에 **AC 줄을 쓰지 않는다** — 조사 질문은 `Q-1` 형식, `murba ac sync` 안 함) → 조사 결과를 사용자가 정한 경로(없으면 프로젝트 루트 `INVESTIGATION.md`)에 작성(근거 `file:line`·실행 결과), `.murba/reports/investigation.md`에는 그 경로를 기록 → `murba phase report --skip "조사 과제: 구현 없음"` → `murba report`. 소스는 고치지 않는다 |
-| 위험 요청(삭제·DB 초기화·push 등) | **실행하지 않는다.** `murba decide irreversible "<요청>" --why "<이유>"`, 안전한 부분은 모두 하고 report로 끝 |
+| 위험 요청(삭제·DB 초기화·push 등) | **실행하지 않는다.** `murba decide irreversible "<요청>" --why "<이유>"`, 안전한 부분은 모두 하고 report로 끝(코드를 바꾸는 안전한 부분은 AC로 기획·승인·테스트·build를 거친다. build를 건너뛰고 고치면 CLI가 거부) |
 
 ## 서브에이전트 kickoff 틀
 ```
