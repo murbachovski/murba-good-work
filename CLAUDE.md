@@ -5,9 +5,9 @@
 
 ## 현재 상태
 - 단계: main = 플러그인 0.1.1(구현 작업 파이프라인 생략 금지, [ADR 0004](docs/decisions/0004-no-pipeline-skip-for-implementation.md)). 태그·Release는 v0.1.0까지. 보고서 [261124-v0.1.0](docs/history/261124-v0.1.0.md), 시험 변경 [ADR 0002](docs/decisions/0002-scenario-test-changes.md), guard 위협 모델 [ADR 0003](docs/decisions/0003-guard-threat-model.md)
-- 비교 평가: [예비 비교](docs/evaluation/261124-pilot.md)(murba vs pstack vs 플러그인 없음), 확장 비교 진행 중
+- 비교 평가: [예비 비교](docs/evaluation/261124-pilot.md), [확장 비교 25×3](docs/evaluation/261124-full.md)(murba vs pstack vs 플러그인 없음)
 - CI: GitHub Actions(Node 18·20·22 테스트 + validate), main 보호(CI 필수)
-- 다음 후보(v0.1.2): 생략으로 끝나는 실행의 소스 변경 0 검사, init 전 작업 중 변경을 기준선으로
+- 다음 후보(v0.1.2): 생략으로 끝나는 실행의 소스 변경 0 검사, init 전 작업 중 변경을 기준선으로, `murba init`이 대상 저장소에 `.gitignore`를 만들지 않게(확장 비교 n13)
 - 기준 문서: [기획서 v0.1](docs/spec/spec-v0.1.md) — 모든 구현은 기획서가 우선한다
 - 결정 기록: [초기 결정 로그](docs/decisions/0001-initial-decision-log.md)
 
@@ -16,10 +16,11 @@
 |---|---|
 | `.claude-plugin/marketplace.json` | marketplace. 플러그인 목록 |
 | `plugins/murba-good-work/` | 플러그인 본체: skills, agents, hooks, scripts, bin, tests |
-| `scenarios/` | 시나리오 과제(`tasks.json`)·시드·무인 실행기(`harness/`) |
+| `scenarios/` | 시나리오 과제(`tasks.json`)·시드·무인 실행기(`harness/`)·비교 평가 과제와 채점기(`eval/`) |
 | `docs/spec/` | 기획서. 버전별 파일 |
 | `docs/rules/` | 작업 규칙 (아래 목차) |
 | `docs/research/` | 조사 자료: 플러그인·실무, 논문 |
+| `docs/evaluation/` | 비교 평가 결과 |
 | `docs/decisions/` | 결정 기록(ADR). 번호 순, 추가만 |
 | `docs/history/` | 작업 보고서. `YYMMDD-vX.Y.Z.md` + `.html`, 추가만 |
 | `CHANGELOG.md` | 버전별 변경 |
