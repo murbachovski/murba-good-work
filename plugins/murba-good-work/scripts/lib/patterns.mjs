@@ -400,6 +400,9 @@ function badDeleteTarget(t, proj, { findMode = false, cwd = proj } = {}) {
     if (abs === pr || rabs === rpr) return findMode ? null : `프로젝트 루트 재귀 삭제(${t})`;
     if (pr.startsWith(abs + '/') || rpr.startsWith(rabs + '/')) return `프로젝트 상위 경로 재귀 삭제(${t})`;
     if (abs.startsWith(pr + '/') || rabs.startsWith(rpr + '/')) return null;
+    // temp dirs are fine even when the project itself lives in /tmp (Linux); project root and ancestors were checked above.
+    // A path that climbs out of the project with `..` is still treated as a sibling below.
+    if ((isTmpPath(abs) || isTmpPath(rabs)) && !/(^|\/)\.\.(\/|$)/.test(stripped)) return null;
     // a sibling of the project (same parent folder), e.g. `node_modules/../../other`
     if ((abs.startsWith(path.dirname(pr) + '/') || rabs.startsWith(path.dirname(rpr) + '/')) && !ARTIFACT_NAMES.includes(path.basename(abs))) return `프로젝트 밖 경로 재귀 삭제(${t})`;
   }
