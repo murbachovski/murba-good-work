@@ -48,7 +48,15 @@ function claude(prompt, cwd, model, tools) {
   });
 }
 function readJson0(s) { try { return JSON.parse(s); } catch { return null; } }
-function lastJson(text) { const m = String(text).match(/\[[\s\S]*\]|\{[\s\S]*\}/g); if (!m) return null; for (let i = m.length - 1; i >= 0; i--) { try { return JSON.parse(m[i]); } catch {} } return null; }
+// 마지막 JSON 값: 끝쪽 닫는 괄호에서 거꾸로 여는 괄호 후보를 찾아 파싱(앞 설명에 괄호가 섞여도 됨)
+export function lastJson(text) {
+  const t = String(text);
+  for (const [open, close] of [['[', ']'], ['{', '}']]) {
+    const end = t.lastIndexOf(close); if (end < 0) continue;
+    for (let i = t.lastIndexOf(open, end); i >= 0; i = t.lastIndexOf(open, i - 1)) { try { return JSON.parse(t.slice(i, end + 1)); } catch {} if (i === 0) break; }
+  }
+  return null;
+}
 
 async function gradeOne(runDir, id) {
   const dir = path.join(runDir, id);
@@ -120,7 +128,9 @@ ${finalText.slice(-3000)}`, OUT, 'haiku', []);
   return rec;
 }
 
+if (import.meta.url !== `file://${process.argv[1]}`) { /* imported */ } else {
 const jobs = [];
 for (const r of RUNS) for (const id of fs.readdirSync(r)) if (fs.existsSync(path.join(r, id, 'summary.json')) && !fs.existsSync(path.join(OUT, `${path.basename(r)}__${id}.json`))) jobs.push([r, id]);
 console.log(`grading ${jobs.length} runs → ${OUT}`);
 await Promise.all(Array.from({ length: Math.min(CONC, jobs.length) }, async () => { while (jobs.length) { const [r, id] = jobs.shift(); try { await gradeOne(r, id); } catch (e) { console.log('ERR', r, id, e.message); } } }));
+}
