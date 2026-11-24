@@ -717,17 +717,36 @@ function publishDeploy(c0, w) {
   return null;
 }
 
-// Files `sed -i` edits: GNU `sed -i 's/a/b/' f`, BSD `sed -i '' 's/a/b/' f` / `sed -i .bak …` (the suffix word is not the script),
-// `-e`/`-f` scripts (then every operand is a file), combined flags (`-ne`), `--`
+// Files `sed -i` edits (getopt-style): GNU `sed -i 's/a/b/' f`, BSD `sed -i '' 's/a/b/' f` / `sed -i .bak …`, combined flags
+// (`-Ei`, `-ni`, `-i.bak`, `-es/a/b/`), `-e`/`-f` scripts (then every operand is a file), `-l N`, long options, `--`.
+// A dot word after `-i` once the script is known (`sed -e x -i .mocharc.yml`) is a file for GNU (options are reordered) → counted.
+const SED_DOT = /^\.[\w.~-]*$/;
+export const sedInPlace = w => w.slice(1).some(t => /^--in(-(p(l(a(ce?)?)?)?)?)?(=|$)/.test(t) || /^-[a-dg-hj-zA-HJ-Z]*[iI]/.test(t));
 export function sedFiles(w) {
   const files = []; let script = false, opts = true;
   for (let i = 1; i < w.length; i++) {
     const t = w[i];
     if (opts && t === '--') { opts = false; continue; }
+    if (opts && t.startsWith('--')) {
+      const [name, val] = [t.split('=')[0], t.includes('=')];
+      const is = (full, min) => name.length >= min && full.startsWith(name); // GNU accepts unique prefixes (--expr)
+      if (is('--expression', 3) || is('--file', 4)) { script = true; if (!val) i++; }
+      else if (is('--line-length', 3) && !val) i++;
+      continue;
+    }
     if (opts && t.startsWith('-') && t.length > 1) {
-      if (t === '-i' || t === '-I') { const n = w[i + 1]; if (n === '' || /^\.[\w.~-]*$/.test(n ?? '')) i++; continue; }
-      if (/^-[a-zA-Z]*[ef]$/.test(t) || t === '--expression' || t === '--file') { script = true; i++; continue; }
-      if (/^-[a-zA-Z]*[ef]./.test(t) && !/^-i/.test(t) || /^--(expression|file)=/.test(t)) script = true;
+      for (let k = 1; k < t.length; k++) {
+        const c = t[k], rest = t.slice(k + 1);
+        if (c === 'e' || c === 'f') { script = true; if (!rest) i++; break; }
+        if (c === 'l') { if (!rest) i++; break; }
+        if (c === 'i' || c === 'I') {
+          if (rest) break; // attached suffix (-i.bak, -ie)
+          const n = w[i + 1];
+          if (n === '') i++;
+          else if (n !== undefined && SED_DOT.test(n)) { if (script) files.push(n); i++; }
+          break;
+        }
+      }
       continue;
     }
     if (!script) { script = true; continue; }
@@ -743,7 +762,7 @@ export function segWriteTargets(text, w, heredocBodies = []) {
   const c0 = base(w[0]);
   const args = w.slice(1).filter(t => !t.startsWith('-'));
   if (c0 === 'tee' || c0 === 'sponge') out.push(...args);
-  if (c0 === 'sed' && w.some(t => /^-i/.test(t) || /^--in-place/.test(t))) out.push(...sedFiles(w));
+  if ((c0 === 'sed' || c0 === 'gsed') && sedInPlace(w)) out.push(...sedFiles(w));
   if (c0 === 'perl' && w.some(t => /^-[a-z]*i/.test(t))) out.push(...args.slice(1));
   if (['cp', 'mv', 'install', 'ln', 'rsync'].includes(c0) && args.length >= 2) out.push(args[args.length - 1]);
   if (['mv', 'rsync'].includes(c0) && args.length >= 2) out.push(...args.slice(0, -1)); // moving a file away also changes it
