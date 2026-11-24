@@ -4,10 +4,11 @@
 이 파일은 목차다. 규칙 본문은 `docs/rules/`에 있고 작업 전에 해당 파일을 읽는다.
 
 ## 현재 상태
-- 단계: main = 플러그인 0.1.2(생략 실행 소스 변경 금지·init 기준선·대상 저장소 `.gitignore` 미변경, [ADR 0005](docs/decisions/0005-skipped-runs-and-baseline.md)). tag·Release는 [v0.1.1](https://github.com/murbachovski/murba-good-work/releases/tag/v0.1.1)까지. 보고서 [261124-v0.1.2](docs/history/261124-v0.1.2.md), [261124-v0.1.1](docs/history/261124-v0.1.1.md), 시험 변경 [ADR 0002](docs/decisions/0002-scenario-test-changes.md), guard 위협 모델 [ADR 0003](docs/decisions/0003-guard-threat-model.md)
+- 단계: main = 플러그인 0.1.4(test-writer·evaluator 독립 작업 강제, [ADR 0007](docs/decisions/0007-enforce-independent-roles.md)). tag·Release는 [v0.1.4](https://github.com/murbachovski/murba-good-work/releases/tag/v0.1.4)까지. 보고서 [261125-v0.1.4](docs/history/261125-v0.1.4.md), [261124-v0.1.3](docs/history/261124-v0.1.3.md), [261124-v0.1.2](docs/history/261124-v0.1.2.md). 시험 변경 [ADR 0002](docs/decisions/0002-scenario-test-changes.md), guard 위협 모델 [ADR 0003](docs/decisions/0003-guard-threat-model.md), `.gitignore`·예약 호출 [ADR 0006](docs/decisions/0006-no-wakeups-and-gitignore.md)
 - 비교 평가: [예비 비교](docs/evaluation/261124-pilot.md), [확장 비교 25×3](docs/evaluation/261124-full.md)(murba vs pstack vs 플러그인 없음)
 - CI: GitHub Actions(Node 18·20·22 테스트 + validate), main 보호(CI 필수)
-- 다음 후보(v0.1.3): guard의 승인 전 `.gitignore` 쓰기 예외 제거(게이트 숨김 경로), 무인 실행의 서브에이전트 백그라운드·`ScheduleWakeup` 대기(t093 관찰)
+- 다음 후보: BSD `sed -i '' '<스크립트>' <파일>` 해석 오탐(v0.1.4 알려진 문제), murba 0.1.4 재비교 여부 — 사용자 결정 대기
+- 사용자용 안내: [README](README.md)
 - 기준 문서: [기획서 v0.1](docs/spec/spec-v0.1.md) — 모든 구현은 기획서가 우선한다
 - 결정 기록: [초기 결정 로그](docs/decisions/0001-initial-decision-log.md)
 

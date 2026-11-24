@@ -1,0 +1,31 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>작업 보고서 261124 · 0.1.3</title><style>
+:root{--bg:#fafaf9;--fg:#1c1917;--mut:#57534e;--line:#e7e5e4;--card:#fff;--ok:#15803d;--warn:#b45309;--bad:#b91c1c;--acc:#1d4ed8}
+@media (prefers-color-scheme:dark){:root{--bg:#0c0a09;--fg:#e7e5e4;--mut:#a8a29e;--line:#292524;--card:#1c1917;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--acc:#93c5fd}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+main{max-width:960px;margin:0 auto;padding:32px 16px 64px}
+h1{font-size:26px;margin:0 0 20px}h2{font-size:18px;margin:36px 0 12px;padding-top:12px;border-top:1px solid var(--line)}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden;display:block;overflow-x:auto}
+th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--line)}th{color:var(--mut);font-weight:600;font-size:13px}
+code{font:13px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 4px;border-radius:4px}
+ul,ol{padding-left:22px}li{margin:3px 0}.b{font-weight:700}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+h2:first-of-type+ul{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 12px 12px 30px}
+pre{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;overflow-x:auto}h3{font-size:16px;margin:20px 0 8px}</style></head><body><main>
+<h1>작업 보고서 261124 · 플러그인 0.1.3</h1>
+<h2>요약</h2>
+<ul><li><strong>한 일</strong>: v0.1.2 단계 끝 점검에서 나온 두 빈틈(승인 전 <code>.gitignore</code>로 새 파일을 소스 변경 게이트에서 숨김, 무인 실행의 <code>ScheduleWakeup</code> 대기)을 고친 v0.1.3을 main에 머지(PR #14). 독립 리뷰 3회(ADR 0003 상한). 이어서 README 최신화(PR #15)</li><li><strong>결과</strong>: v0.1.3 tag·[Release](https://github.com/murbachovski/murba-good-work/releases/tag/v0.1.3)(<code>ee3eb5f</code>). 회귀 세트 11/11. 테스트 235개 중 234 통과·1 건너뜀. 실제 실행 12건 모두 블라인드 채점 정답</li><li><strong>다음</strong>: v0.1.4(test-writer·evaluator 독립 작업 강제, 사용자 선택 "v0.1.4에서 강제") → [261125-v0.1.4](261125-v0.1.4.md)</li></ul>
+<h2>먼저 볼 것</h2>
+<div class="t"><table><thead><tr><th>구분</th><th>내용</th></tr></thead><tbody><tr><td><span class="b bad">❌</span> 실패·생략</td><td>없음</td></tr><tr><td><span class="b warn">⚠️</span> 미검증</td><td>대화형 모드 경로는 단위 테스트만. 실제 실행에서 test-writer·evaluator를 거치지 않고 메인 세션이 판정을 기록한 실행이 있음(t093, CLI가 강제하지 않음) → v0.1.4에서 강제</td></tr><tr><td>범위 밖 변경</td><td>없음</td></tr></tbody></table></div>
+<h2>단계</h2>
+<div class="t"><table><thead><tr><th>단계</th><th>상태</th><th>증거</th></tr></thead><tbody><tr><td>1차 구현(<code>e6591d6</code>)</td><td><span class="b ok">✅</span></td><td>승인 전 <code>.gitignore</code>·<code>../.gitignore</code> 쓰기 거부, 생략 게이트가 <code>.gitignore</code> 변경을 봄, 실행 중 <code>ScheduleWakeup</code>·<code>CronCreate</code> 거부</td></tr><tr><td>리뷰 1차 → 수정(<code>218cd29</code>)</td><td><span class="b ok">✅</span></td><td>차단 2(자기 무시 <code>.gitignore</code>, init 전 <code>.gitignore</code> 오탐)·중요 3 반영. assume-unchanged·skip-worktree 표시 파일도 비교</td></tr><tr><td>리뷰 2차 → 수정(<code>aca3684</code>)</td><td><span class="b ok">✅</span></td><td>차단 2(추적 폴더 안 새 <code>.gitignore</code>, 도구 캐시 오탐)·중요 3 반영. 상위 폴더 <code>.gitignore</code> 비교</td></tr><tr><td>리뷰 3차 → 수정(<code>264f86d</code>)</td><td><span class="b ok">✅</span></td><td>차단 1(모노레포 하위 폴더 표시 파일이 게이트 오류)·중요 3 반영. 수정 뒤 리뷰 없음(ADR 0003)</td></tr><tr><td>실제 실행</td><td><span class="b ok">✅</span></td><td>n13·n10·t093·n01 × 3커밋 = 12건 모두 done·정답, 예약 호출 0, 게이트 오탐 0. 실행 $10.06, 채점 $0.24</td></tr><tr><td>머지(PR #14, <code>e13263f</code>)</td><td><span class="b ok">✅</span></td><td>PR 체크 4개 성공, main CI 성공</td></tr><tr><td>README(PR #15, <code>ee3eb5f</code>)</td><td><span class="b ok">✅</span></td><td>사용자 요청 "깃허브에 README.md 문서 작성". 독립 리뷰 16건 반영(guard 범위·게이트 한계·비교 단서)</td></tr><tr><td>회귀 세트 → tag·Release</td><td><span class="b ok">✅</span></td><td><code>release-013</code> 11/11 done·성공, $13.55, 평균 8.3분. guard 거부 3건 모두 역할 규칙(test-writer 구현 읽기 등)</td></tr></tbody></table></div>
+<h2>내가 내린 결정</h2>
+<div class="t"><table><thead><tr><th>결정</th><th>틀렸을 때 비용</th></tr></thead><tbody><tr><td>승인 전 <code>.gitignore</code> 쓰기를 다른 파일과 같이 거부</td><td>승인 전에 <code>.murba/</code>를 무시 목록에 넣던 습관이 막힘(v0.1.2부터 필요 없음)</td></tr><tr><td>버릴 수 있는 폴더를 이름·표식 파일(<code>pyvenv.cfg</code>·<code>CACHEDIR.TAG</code>·<code># Created by …</code>)로 판정</td><td>목록에 없는 도구 캐시가 <code>.gitignore</code>를 만들면 오탐</td></tr><tr><td>예약 호출은 실행 중(done 전)에만 거부</td><td>실행 중 예약이 꼭 필요한 정상 흐름이 있으면 막힘. 거부 메시지가 "턴을 끝내고 알림을 기다린다"로 안내</td></tr><tr><td>README는 v0.1.3 머지 뒤 별도 PR, 한국어(사용자 선택)</td><td>없음</td></tr></tbody></table></div>
+<h2>단계 끝 점검(독립 에이전트)</h2>
+<p>v0.1.3·README·v0.1.4를 함께 점검했다. 결과 표는 [261125-v0.1.4](261125-v0.1.4.md)에 있다.</p>
+<h2>비용</h2>
+<ul><li>실제 실행 $10.06 + 채점 $0.24, 회귀 세트 $13.55. 리뷰·점검 에이전트 비용은 측정 수단 없음</li></ul>
+<h2>남은 질문</h2>
+<ul><li>없음(v0.1.4 진행은 사용자 결정 "v0.1.4에서 강제")</li></ul>
+<h2>다음 할 일</h2>
+<ul><li>v0.1.4</li></ul>
+</main></body></html>
