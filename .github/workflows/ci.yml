@@ -1,0 +1,39 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 22]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+      - name: launcher runs without ESM detection
+        run: node plugins/murba-good-work/bin/murba help
+      - name: hook and CLI tests
+        run: node --test plugins/murba-good-work/tests/*.test.mjs
+
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+      - name: validate plugin
+        run: claude plugin validate ./plugins/murba-good-work --strict
+      - name: validate marketplace
+        run: claude plugin validate . --strict
