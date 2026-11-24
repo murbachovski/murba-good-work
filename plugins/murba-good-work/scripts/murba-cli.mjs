@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const here = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)));
 const core = await import(pathToFileURL(path.join(here, 'lib', 'core.mjs')).href);
 const { renderReport } = await import(pathToFileURL(path.join(here, 'lib', 'report.mjs')).href);
-const { globToRegex, isTestPath, matchAny } = await import(pathToFileURL(path.join(here, 'lib', 'patterns.mjs')).href);
+const { globToRegex, isTestPath, matchAny, ARTIFACT_NAMES, DEFAULT_IMPL_GLOBS } = await import(pathToFileURL(path.join(here, 'lib', 'patterns.mjs')).href);
 import { execFileSync } from 'node:child_process';
 const { CHAIN, MACHINE, projectDir, murbaDir, statePath, readState, updateState, appendEvent, appendDecision, DECISION_CLASSES, missingRequires, nextActionHint, lastVerdict, nonHeldAcs, sha256File, sha256Text, nowIso, pluginVersion, isHeadless, withLock, writeJsonAtomic, writeState, ledgerTampered } = core;
 
@@ -67,36 +67,43 @@ function lockTaskFacts(st) {
   st.risky = plan.risky === true;
   appendEvent(proj, 'task_facts_locked', { task_type: st.task_type, risky: st.risky });
 }
-// init 이후 바뀐 구현 파일(테스트·설정·.murba·.gitignore 제외). git 저장소가 아니면 null
+// init 이후 바뀐 구현 파일(테스트·설정·의존성 폴더·.murba·.gitignore 제외). git 저장소가 아니거나 커밋이 없으면 null
 const CONFIG_RE = /(^|\/)(package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig[^/]*\.json|[^/]*\.config\.[cm]?[jt]s|\.[a-z]+rc(\.[a-z]+)?|init\.sh|Makefile|pyproject\.toml|setup\.cfg|tox\.ini|requirements[^/]*\.txt)$/;
-const CODE_EXT = /\.(m?[jt]sx?|cjs|py|go|rb|rs|java|kt|php|html?|css|scss|vue|svelte|sql|sh)$/;
+const CODE_EXT = /\.(m?[jt]sx?|cjs|py|go|rb|rs|java|kt|kts|scala|php|html?|css|scss|vue|svelte|sql|sh|c|h|cc|cpp|hpp|cs|swift|m|mm|dart|lua|pl|ex|exs)$/;
+// 경로는 프로젝트 폴더 기준(--relative: 모노레포 하위 폴더), 비 ASCII 이름은 그대로(-z는 따옴표·8진수 이스케이프를 하지 않음), 이름 바꾸기는 삭제+추가로(--no-renames)
 const gitOut = a => execFileSync('git', a, { cwd: proj, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+const gitList = a => gitOut(a).split('\0').filter(Boolean);
+const changedSince = rev => [...gitList(['diff', '--name-only', '--relative', '--no-renames', '-z', rev]), ...gitList(['ls-files', '--others', '--exclude-standard', '-z'])];
 const fileHash = f => { try { return sha256File(path.join(proj, f)); } catch { return null; } };
-// init 때 이미 바뀌어 있던 파일(추적 파일의 변경·삭제, 추적 안 된 파일)과 그 내용 해시. 사용자가 하던 작업을 게이트가 오탐하지 않게 한다
-function dirtyBaseline() {
-  try {
-    const files = [...gitOut(['diff', '--name-only', 'HEAD']).split('\n'), ...gitOut(['ls-files', '--others', '--exclude-standard']).split('\n')].filter(Boolean);
-    return Object.fromEntries(files.filter(f => !f.startsWith('.murba/')).map(f => [f, fileHash(f)]));
-  } catch { return {}; }
+const gateFile = (f, globs) => !f.startsWith('.murba/') && f !== '.gitignore' && !f.split('/').some(c => ARTIFACT_NAMES.includes(c)) && !isTestPath(f) && !CONFIG_RE.test(f) && (matchAny(f, globs) || CODE_EXT.test(f));
+// init 때 이미 바뀌어 있던 구현 파일(추적 파일의 변경·삭제, 추적 안 된 파일)과 그 내용 해시(삭제면 null). 사용자가 하던 작업을 게이트가 오탐하지 않게 한다
+function dirtyBaseline(globs) {
+  try { return Object.fromEntries([...new Set(changedSince('HEAD'))].filter(f => gateFile(f, globs)).map(f => [f, fileHash(f)])); } catch { return {}; }
 }
 function sourceChanges(st) {
   if (!st.base_sha) return null;
+  const globs = st.impl_globs || [];
   let files;
-  try { files = [...gitOut(['diff', '--name-only', st.base_sha]).split('\n'), ...gitOut(['ls-files', '--others', '--exclude-standard']).split('\n')]; } catch { return null; }
+  try { files = changedSince(st.base_sha); } catch { return null; }
   const base = st.base_dirty || {};
-  return [...new Set(files.filter(Boolean))].filter(f => !f.startsWith('.murba/') && f !== '.gitignore' && !isTestPath(f) && !CONFIG_RE.test(f) && (matchAny(f, st.impl_globs || []) || CODE_EXT.test(f)))
-    .filter(f => !(Object.prototype.hasOwnProperty.call(base, f) && base[f] === fileHash(f)));
+  const same = f => Object.prototype.hasOwnProperty.call(base, f) && base[f] === fileHash(f);
+  // 기준선 파일은 diff에서 사라져도(되돌림·삭제) 내용이 기준선과 다르면 변경이다
+  return [...new Set([...files, ...Object.keys(base)])].filter(f => gateFile(f, globs) && !same(f));
+}
+function gateSkippedReason(st) {
+  if (st.base_sha) return 'git error';
+  try { gitOut(['rev-parse', '--is-inside-work-tree']); return 'no commit at init'; } catch { return 'not a git repo'; }
 }
 function sourceGate(st, what) {
   const ch = sourceChanges(st);
-  if (ch === null) { appendEvent(proj, 'source_gate_skipped', { what, reason: st.base_sha ? 'git error' : 'not a git repo' }); return; }
+  if (ch === null) { appendEvent(proj, 'source_gate_skipped', { what, reason: gateSkippedReason(st) }); return; }
   if (ch.length) { appendEvent(proj, 'source_changed_before_tests', { what, files: ch }); fail(2, `SOURCE_CHANGED_BEFORE_TESTS: ${ch.join(', ')} — 테스트보다 먼저 구현 파일을 고쳤다. 이 수정을 직접 되돌린 뒤(테스트 먼저) 다시 ${what}`); }
 }
 
 // 생략으로 끝나는 실행(조사·위험 요청 보고)은 구현 파일을 바꿀 수 없다. 과제 성격을 스스로 조사·위험으로 적고 생략한 뒤 직접 고치는 경로를 막는다
 function skippedRunGate(st, what) {
   const ch = sourceChanges(st);
-  if (ch === null) { appendEvent(proj, 'source_gate_skipped', { what, reason: st.base_sha ? 'git error' : 'not a git repo' }); return; }
+  if (ch === null) { appendEvent(proj, 'source_gate_skipped', { what, reason: gateSkippedReason(st) }); return; }
   if (ch.length) { appendEvent(proj, 'source_changed_in_skipped_run', { what, files: ch }); fail(2, `SOURCE_CHANGED_IN_SKIPPED_RUN: ${ch.join(', ')} — 단계를 생략한 실행(조사·위험 요청 보고)은 구현 파일을 바꿀 수 없다. 이 변경을 되돌리거나(재현 스크립트는 프로젝트 밖으로) 다시 ${what}`); }
 }
 
@@ -153,7 +160,7 @@ const cmds = {
       impl_globs: ['src/**', 'app/**', 'lib/**', 'server/**', 'public/**'],
       // 재초기화는 처음 init의 기준선을 유지한다(재초기화로 그 사이 바꾼 구현 파일을 기준선에 넣지 못하게)
       base_sha: prev && 'base_sha' in prev ? prev.base_sha : (() => { try { return gitOut(['rev-parse', 'HEAD']).trim() || null; } catch { return null; } })(),
-      base_dirty: prev && prev.base_dirty ? prev.base_dirty : dirtyBaseline(),
+      base_dirty: prev && prev.base_dirty ? prev.base_dirty : dirtyBaseline(DEFAULT_IMPL_GLOBS),
     };
     writeState(proj, st, { fresh: true });
     if (prev) {
@@ -198,7 +205,8 @@ const cmds = {
         if (st.task_type !== 'investigation' && st.risky !== true) fail(2, '생략 거부: 구현이 필요한 작업은 기획·승인·테스트·평가 단계를 건너뛸 수 없다. 작은 작업도 AC 1개로 진행한다');
         if (st.task_type !== 'investigation' && next !== 'report') fail(2, '생략 거부: 위험 요청의 생략은 report로만 갈 수 있다');
         gateEntry(st, next);
-        if (!st.approved) skippedRunGate(st, `murba phase ${next} --skip`);
+        // build를 건너뛰는 생략이면(승인 여부와 무관) 구현 파일 변경이 있을 수 없다
+        if (path_.includes('build')) skippedRunGate(st, `murba phase ${next} --skip`);
         st.skipped = st.skipped || {};
         for (const ph of path_) st.skipped[ph] = String(skipReason);
         st.phase = next;
@@ -241,7 +249,7 @@ const cmds = {
       }
       if (cur === 'qa' && next === 'report' && nonHeldAcs(st).some(id => st.ac[id].browser)) fail(2, '전이 거부: [browser] AC가 있어 browser 단계 필요');
       if (cur === 'report' && next === 'build' && !opt('--reason')) fail(1, 'report → build 재작업은 --reason 필요');
-      if (cur === 'report' && next === 'done' && st.skipped && !st.approved) skippedRunGate(st, 'murba phase done');
+      if (cur === 'report' && next === 'done' && st.skipped && st.skipped.build) skippedRunGate(st, 'murba phase done');
       st.phase = next;
       if (next === 'setup') st.auto = true;
       if (next === 'done') st.auto = false;

@@ -87,3 +87,105 @@ test('v0.1.2: init --force keeps the first baseline (cannot launder edits made d
   const r = m(p, ['phase', 'report', '--skip', '조사']);
   assert.equal(r.code, 2); assert.match(r.err, /src\/id\.js/);
 });
+
+// ---- PR #12 review round 1 ----
+const SPEC1 = '# spec\n- AC-001 WHEN id() THE SYSTEM SHALL return 1\n';
+function approveHeadless(p, plan) {
+  const H = { env: { MURBA_HEADLESS: '1' } };
+  write(p, '.murba/run-plan.json', JSON.stringify(plan));
+  assert.equal(m(p, ['phase', 'grill'], H).code, 0);
+  write(p, '.murba/spec.md', SPEC1);
+  assert.equal(m(p, ['phase', 'spec-review'], H).code, 0);
+  write(p, '.murba/reports/spec-reviewer/review.md', 'ok');
+  assert.equal(m(p, ['phase', 'revise'], H).code, 0);
+  write(p, '.murba/ac-test-map.md', 'map');
+  assert.equal(m(p, ['ac', 'sync'], H).code, 0);
+  assert.equal(m(p, ['phase', 'approve'], H).code, 0);
+  const r = m(p, ['approve'], H); assert.equal(r.code, 0, r.err);
+  assert.equal(readState(p).approved, true);
+}
+
+test('v0.1.2 r1: non-ASCII file names are gated (tracked and untracked)', () => {
+  const p = seeded({ 'src/주문.js': 'export const a = 1;\n', 'test/t.test.js': '// seed\n' }); m(p, ['init']);
+  write(p, '.murba/run-plan.json', JSON.stringify({ task_type: 'investigation' }));
+  write(p, 'src/주문.js', 'export const a = 2;\n');
+  const r = m(p, ['phase', 'report', '--skip', '조사']);
+  assert.equal(r.code, 2); assert.match(r.err, /src\/주문\.js/);
+  write(p, 'src/주문.js', 'export const a = 1;\n');
+  write(p, '재현.mjs', 'console.log(1)\n');
+  const r2 = m(p, ['phase', 'report', '--skip', '조사']);
+  assert.equal(r2.code, 2); assert.match(r2.err, /재현\.mjs/);
+});
+
+test('v0.1.2 r1: an approved run that skips build cannot change source (headless self-approval)', () => {
+  const p = seeded(); assert.equal(m(p, ['init', '--headless', '--auto-approve'], { env: { MURBA_HEADLESS: '1' } }).code, 0);
+  approveHeadless(p, { task_type: 'refactor', risky: true });
+  write(p, 'src/id.js', 'export const id = 2;\n');
+  const r = m(p, ['phase', 'report', '--skip', '위험 요청: 안전한 부분만'], { env: { MURBA_HEADLESS: '1' } });
+  assert.equal(r.code, 2, r.out); assert.match(r.err, /SOURCE_CHANGED_IN_SKIPPED_RUN: src\/id\.js/);
+  write(p, 'src/id.js', 'export const id = 1;\n');
+  assert.equal(m(p, ['phase', 'report', '--skip', '위험 요청'], { env: { MURBA_HEADLESS: '1' } }).code, 0);
+  write(p, 'src/id.js', 'export const id = 3;\n');
+  const d = toDone(p);
+  assert.equal(d.code, 2); assert.match(d.err, /src\/id\.js/);
+});
+
+test('v0.1.2 r1: project in a subfolder of a git repo (monorepo) — baseline and gate use project-relative paths', () => {
+  const root = seeded({ 'pkg/app/src/a.js': 'a1\n', 'pkg/app/test/t.test.js': '// seed\n', 'other/b.js': 'b\n' });
+  const p = path.join(root, 'pkg', 'app');
+  write(root, 'pkg/app/src/a.js', 'a2-wip\n');
+  write(root, 'other/b.js', 'b-wip\n'); // outside the project: not ours
+  assert.equal(m(p, ['init']).code, 0);
+  assert.deepEqual(Object.keys(readState(p).base_dirty), ['src/a.js']);
+  write(p, '.murba/run-plan.json', JSON.stringify({ task_type: 'investigation' }));
+  write(p, 'src/a.js', 'a3-agent\n');
+  const r = m(p, ['phase', 'report', '--skip', '조사']);
+  assert.equal(r.code, 2); assert.match(r.err, /src\/a\.js/); assert.doesNotMatch(r.err, /other/);
+});
+
+test('v0.1.2 r1: staged or committed renames show the old path as deleted', () => {
+  const p = seeded({ 'src/id.js': 'export const id = 1;\n', 'test/t.test.js': '// seed\n' }); m(p, ['init']);
+  write(p, '.murba/run-plan.json', JSON.stringify({ task_type: 'investigation' }));
+  git(p, 'mv', 'src/id.js', 'docs-id.md');
+  const r = m(p, ['phase', 'report', '--skip', '조사']);
+  assert.equal(r.code, 2); assert.match(r.err, /src\/id\.js/);
+  git(p, 'commit', '-qm', 'rename');
+  assert.equal(m(p, ['phase', 'report', '--skip', '조사']).code, 2);
+});
+
+test('v0.1.2 r1: dependency folders are not source; reverting the user\'s init-time WIP is a change', () => {
+  const p = seeded(); m(p, ['init']);
+  write(p, '.murba/run-plan.json', JSON.stringify({ task_type: 'investigation' }));
+  write(p, 'node_modules/lodash/index.js', 'x'); write(p, '.venv/lib/site-packages/pkg/__init__.py', 'x');
+  assert.equal(m(p, ['phase', 'report', '--skip', '조사']).code, 0, 'npm install / venv in an investigation is fine');
+  const q = seeded(); write(q, 'src/id.js', 'export const id = 42; // user wip\n'); write(q, 'src/draft.js', 'draft\n');
+  m(q, ['init']);
+  write(q, '.murba/run-plan.json', JSON.stringify({ task_type: 'investigation' }));
+  git(q, 'checkout', '--', 'src/id.js'); fs.rmSync(path.join(q, 'src/draft.js'));
+  const r = m(q, ['phase', 'report', '--skip', '조사']);
+  assert.equal(r.code, 2); assert.match(r.err, /src\/id\.js/); assert.match(r.err, /src\/draft\.js/);
+});
+
+test('v0.1.2 r1: commit during the run then init --force keeps the original base commit', () => {
+  const p = seeded(); m(p, ['init']);
+  const base = readState(p).base_sha;
+  write(p, 'src/id.js', 'export const id = 7;\n'); git(p, 'commit', '-qam', 'agent change');
+  assert.equal(m(p, ['init', '--force']).code, 0);
+  assert.equal(readState(p).base_sha, base);
+  write(p, '.murba/run-plan.json', JSON.stringify({ task_type: 'investigation' }));
+  const r = m(p, ['phase', 'report', '--skip', '조사']);
+  assert.equal(r.code, 2); assert.match(r.err, /src\/id\.js/);
+});
+
+test('v0.1.2 r1: no-commit repo records the real reason; ripgrep (if installed) does not list .murba/hidden', () => {
+  const p = tmpProj();
+  write(p, '.murba/run-plan.json', JSON.stringify({ task_type: 'investigation' }));
+  assert.equal(m(p, ['phase', 'report', '--skip', '조사']).code, 0);
+  assert.match(events(p), /source_gate_skipped.*no commit at init/);
+  const rg = spawnSync('rg', ['--version']);
+  if (rg.status !== 0) return; // rg not installed: nothing to check
+  const q = seeded(); m(q, ['init']);
+  write(q, '.murba/hidden/h.test.js', 'HIDDEN_MARK\n'); write(q, 'src/x.js', 'HIDDEN_MARK\n');
+  const out = spawnSync('rg', ['-l', 'HIDDEN_MARK'], { cwd: q, encoding: 'utf8' }).stdout;
+  assert.match(out, /src\/x\.js/); assert.doesNotMatch(out, /\.murba/);
+});
