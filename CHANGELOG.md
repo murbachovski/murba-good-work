@@ -9,12 +9,15 @@
 
 ## [플러그인 0.1.4] - 2026-11-24
 ### 바뀜 ([ADR 0007](docs/decisions/0007-enforce-independent-roles.md))
-- guard: 메인 세션은 `.murba/reports/{test-writer,builder,evaluator,pr-reviewer}/`에 쓸 수 없음(서브에이전트 독립 작업의 증거), test-write 단계에서 테스트 파일도 쓸 수 없음
+- guard: 메인 세션은 `.murba/reports/{test-writer,builder,evaluator,pr-reviewer}/`와 `.murba/hidden/`에 쓸 수 없음(서브에이전트 독립 작업의 증거), test-write 단계에서 테스트 파일도 쓸 수 없음. `sh -c`·`eval` 안, 스크립트 파일 안 리터럴 경로, 와일드카드 경로에도 적용
 - `murba lock-tests`: 승인 뒤 test-writer 보고가 없으면 거부(`TEST_WRITER_REPORT_MISSING`). `--amend`는 마지막 잠금 뒤의 보고 필요
-- qa → browser·report: 이번 qa 회차의 evaluator 보고가 없으면 거부(`EVALUATOR_REPORT_MISSING`)
+- qa → browser·report(그리고 qa에서의 `--skip`): 이번 qa 회차의 evaluator 보고가 없으면 거부(`EVALUATOR_REPORT_MISSING`). 빈 파일은 보고로 치지 않음
+- 스킬: refactor도 test-writer 보고 뒤 잠금, 보호 폴더 4개는 서브에이전트가 직접 보고, evaluator가 보고조차 못 쓰면 결정 큐 + 보고서 후 멈춤
 - evaluator 지침: 판정 보고를 `.murba/reports/evaluator/<단계>.md`에 반드시 씀(이전 지침의 "쓰기 도구 없음" 문장 정정)
 ### 검증
-- 테스트 238개 중 237 통과, 1 건너뜀(로컬 rg). 규칙 6개 각각 되돌린 뮤테이션에서 새 테스트 실패 확인
+- 테스트 241개 중 240 통과, 1 건너뜀(로컬 rg). 규칙·보강 14종 각각 되돌린 뮤테이션에서 새 테스트 실패 확인
+- 독립 리뷰 1회: 차단 3건(`sh -c`·`eval`, 스크립트 파일, 와일드카드)·중요 7건 반영
+- 실제 실행(n01·n10·n12·t045·t067, 리뷰 반영 전 `9018056`): 5건 모두 evaluator·test-writer를 실제로 호출(v0.1.1 비교에서 n12·t045·t067은 빠졌던 단계), 메인 세션의 테스트·보고 직접 쓰기 시도는 guard가 거부. 블라인드 채점 4건 정답, t067 2/3(세 갈래 공통 실패 줄)
 
 ## [플러그인 0.1.3] - 2026-11-24
 ### 바뀜 ([ADR 0006](docs/decisions/0006-no-wakeups-and-gitignore.md))

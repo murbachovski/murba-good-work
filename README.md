@@ -11,7 +11,8 @@
 ## 버전
 | 버전 | 상태 | 핵심 |
 |---|---|---|
-| 0.1.3 | main(Release 전) | 실행 중 예약 호출(`ScheduleWakeup`·`CronCreate`) 금지, `.gitignore`로 소스 변경 숨기기 차단 ([ADR 0006](docs/decisions/0006-no-wakeups-and-gitignore.md)) |
+| 0.1.4 | main(Release 전) | test-writer·evaluator의 독립 작업을 CLI·guard가 강제 ([ADR 0007](docs/decisions/0007-enforce-independent-roles.md)) |
+| 0.1.3 | [Release](https://github.com/murbachovski/murba-good-work/releases/tag/v0.1.3) | 실행 중 예약 호출(`ScheduleWakeup`·`CronCreate`) 금지, `.gitignore`로 소스 변경 숨기기 차단 ([ADR 0006](docs/decisions/0006-no-wakeups-and-gitignore.md)) |
 | 0.1.2 | [Release](https://github.com/murbachovski/murba-good-work/releases/tag/v0.1.2) | 단계를 생략한 실행은 소스를 바꿀 수 없음, init 기준선, 대상 저장소 `.gitignore` 미변경 ([ADR 0005](docs/decisions/0005-skipped-runs-and-baseline.md)) |
 | 0.1.1 | [Release](https://github.com/murbachovski/murba-good-work/releases/tag/v0.1.1) | 구현 작업은 파이프라인 생략 금지 ([ADR 0004](docs/decisions/0004-no-pipeline-skip-for-implementation.md)) |
 | 0.1.0 | [Release](https://github.com/murbachovski/murba-good-work/releases/tag/v0.1.0) | 첫 동작 버전 |
@@ -74,7 +75,7 @@ MURBA_HEADLESS=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 claude -p "/murba-good-w
 - **테스트 먼저**: 테스트 잠금 전에 구현 파일(impl_globs·코드 확장자)이 바뀌면 `murba approve`·`lock-tests`가 거부합니다(`SOURCE_CHANGED_BEFORE_TESTS`). 편집 도구든 셸이든 git 상태로 잡습니다. 테스트·설정 파일·루트 `.gitignore`는 이 검사에서 뺍니다
 - **생략한 실행**: build를 건너뛰었거나 미검증 AC가 남은 채 평가를 건너뛴 실행은 구현 파일·`.gitignore`를 바꾼 상태로 done에 갈 수 없습니다(`--skip`·`report → done` 거부, `SOURCE_CHANGED_IN_SKIPPED_RUN`)
 - **기준선**: init 때 이미 하던 작업(바뀐 파일·`.gitignore`)은 내용 해시로 기록해 오탐하지 않습니다
-- **역할 분리**: 구현 에이전트는 테스트·러너 설정을 고칠 수 없고 숨긴 검사를 볼 수 없습니다. test-writer는 구현 코드를 읽지 않고, evaluator는 코드를 고치지 않습니다
+- **역할 분리**: 구현 에이전트는 테스트·러너 설정을 고칠 수 없고 숨긴 검사를 볼 수 없습니다. test-writer는 구현 코드를 읽지 않고, evaluator는 코드를 고치지 않습니다. 테스트 잠금과 qa 통과에는 test-writer·evaluator가 직접 쓴 보고가 필요하고, 메인 세션은 그 보고 폴더와 숨긴 검사를 쓸 수 없습니다
 - **반복 상한**: 수정은 AC당 최대 3라운드입니다
 - **대상 저장소**: `murba init`은 `.murba/`를 빼려고 대상 `.gitignore`를 바꾸지 않습니다(`.murba/.gitignore`로 제외). setup 단계는 필요하면 `node_modules/` 같은 줄을 넣습니다
 - hook은 `.murba/`가 있는 프로젝트에서만 동작합니다
@@ -103,6 +104,8 @@ guard는 협조적인 모델의 실수와 테스트 꼼수를 막는 **안전망
 | `SOURCE_CHANGED_BEFORE_TESTS` | 승인·테스트 잠금 전에 구현 파일이 바뀜 | 미리 고친 구현을 되돌린 뒤 같은 명령을 다시 실행. 구현은 테스트 잠금 뒤 build에서 |
 | `SOURCE_CHANGED_IN_SKIPPED_RUN` | 단계를 생략한 실행(조사·위험 보고)이 구현 파일·`.gitignore`를 바꿈 | 변경을 되돌리거나 재현 스크립트를 프로젝트 밖으로. 구현이 필요하면 새 실행에서 AC로 진행 |
 | `SOURCE_GATE_ERROR` | 기준 커밋이 있는데 git이 실패 | `git status`로 원인 확인. 못 고치면 결정 큐에 남기고 보고서 작성 |
+| `TEST_WRITER_REPORT_MISSING` | test-writer 보고 없이 테스트를 잠그려 함 | test-writer를 불러 테스트와 보고(`.murba/reports/test-writer/`)를 쓰게 한 뒤 다시 |
+| `EVALUATOR_REPORT_MISSING` | 이번 qa 회차에 독립 평가 보고가 없음 | evaluator를 불러 `.murba/reports/evaluator/`에 판정 보고를 쓰게 한 뒤 다시 |
 | `APPROVE_NEEDS_HUMAN` | 대화형 승인은 사람 확인이 필요 | 확인 창에서 직접 승인 |
 | `LEDGER_TAMPERED` | `state.json`이 CLI 밖에서 바뀜 | 되돌리거나 `murba report`로 보고. 이 실행의 판정은 믿을 수 없음 |
 | (화면 메시지 없음) `.murba/events.jsonl`에 `source_gate_skipped` | git 저장소가 아니거나 첫 커밋 전에 init해서 소스 변경 검사를 건너뜀 | 첫 커밋 뒤 `murba init --force`(사람 확인 필요, 승인·테스트 잠금이 지워짐) |
@@ -110,7 +113,7 @@ guard는 협조적인 모델의 실수와 테스트 꼼수를 막는 **안전망
 
 ## 알려진 문제와 한계
 - 사용자 답변의 명시 요구가 AC로 옮겨지지 않으면 자기 판정은 통과합니다. spec-reviewer가 요구→AC 대응표를 만들지만 프롬프트 지시이고 CLI가 강제하지 않습니다. 승인 때 AC가 요구를 다 담았는지 확인하세요
-- test-writer·evaluator 서브에이전트를 거치지 않고 메인 세션이 판정을 기록할 수 있습니다(CLI가 강제하지 않음, 무인 실행 일부에서 관찰)
+- 0.1.4부터 test-writer·evaluator의 보고 파일이 있어야 테스트 잠금·qa 통과가 됩니다. 다만 보고의 **존재와 시각**만 확인하고, 내용이 원장 판정과 같은지는 지침에 맡깁니다
 - 생략한 실행이 done에서 거부돼도 headless 실행은 보고서가 있으면 끝나고 단계는 report로 남습니다
 - `.git/info/exclude`·`core.excludesFile`로 추가한 무시 규칙은 보지 않습니다. 버릴 수 있는 폴더로 판정하지 못한 도구 캐시가 `.gitignore`를 만들면 오탐할 수 있습니다
 - 승인 뒤(setup·test-write) 루트 `.gitignore`에 줄을 더해 새 구현 파일을 숨기는 경로는 테스트 먼저 검사에서 빠집니다. 이후 build·evaluate를 거치므로 검증 없이 끝나지는 않습니다

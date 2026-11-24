@@ -711,10 +711,18 @@ export function bashWriteTargets(cmd) {
 }
 
 // Write targets as canonical project-relative paths (cd-aware; globs/braces kept as patterns for relIs/relUnder)
-export function bashWriteRels(cmd, proj) {
+// sh -c / bash -lc / eval payloads are followed (their writes count too)
+export function bashWriteRels(cmd, proj, depth = 0) {
   const { segs, heredocs } = walkSegments(cmd, proj);
   const out = [];
-  for (const s of segs) for (const t of segWriteTargets(s.text, s.words, heredocs.map(h => h.body))) out.push(...pathVariants(proj, t, s.cwd));
+  for (const s of segs) {
+    for (const t of segWriteTargets(s.text, s.words, heredocs.map(h => h.body))) out.push(...pathVariants(proj, t, s.cwd));
+    if (depth < 3) {
+      const payload = shellPayload(s.words);
+      const inner = payload !== null ? payload : (s.c0 === 'eval' ? s.words.slice(1).join(' ') : null);
+      if (inner) out.push(...bashWriteRels(inner, proj, depth + 1));
+    }
+  }
   return out;
 }
 
