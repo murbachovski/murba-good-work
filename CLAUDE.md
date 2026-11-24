@@ -4,7 +4,8 @@
 이 파일은 목차다. 규칙 본문은 `docs/rules/`에 있고 작업 전에 해당 파일을 읽는다.
 
 ## 현재 상태
-- 단계: 플러그인 v0.1.0 구현·시나리오 시험(100개 과제) 완료. 시험 변경은 [ADR 0002](docs/decisions/0002-scenario-test-changes.md)
+- 단계: 플러그인 v0.1.0 배포 완료(tag·[Release](https://github.com/murbachovski/murba-good-work/releases/tag/v0.1.0)). 보고서 [261124-v0.1.0](docs/history/261124-v0.1.0.md). 시험 변경 [ADR 0002](docs/decisions/0002-scenario-test-changes.md), guard 위협 모델 [ADR 0003](docs/decisions/0003-guard-threat-model.md)
+- 다음: 후속(대화형 시험, CI, 정리) → v0.1.1(spec-review 요구→AC 대응 검사, guard 비가역 목록에 `git reset --hard`·`git clean -fdx` 추가 — 사용자 결정 2026-11-24)
 - 기준 문서: [기획서 v0.1](docs/spec/spec-v0.1.md) — 모든 구현은 기획서가 우선한다
 - 결정 기록: [초기 결정 로그](docs/decisions/0001-initial-decision-log.md)
 
