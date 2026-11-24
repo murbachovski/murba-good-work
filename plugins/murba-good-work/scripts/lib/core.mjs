@@ -69,7 +69,11 @@ export function writeJsonAtomic(p, obj) {
 export function stateShaPath(proj) { return path.join(murbaDir(proj), 'state.sha256'); }
 export function ledgerTampered(proj) {
   const sp = stateShaPath(proj), p = statePath(proj);
-  if (!fs.existsSync(sp) || !fs.existsSync(p)) return false;
+  if (!fs.existsSync(p)) return false;
+  if (!fs.existsSync(sp)) {
+    // init이 ledger_hash:true를 남긴 원장인데 해시 파일이 없으면 변조(지운 뒤 고쳐 쓰기). 표시 없는 옛 원장은 해시 없음 허용
+    try { return JSON.parse(fs.readFileSync(p, 'utf8')).ledger_hash === true; } catch { return true; }
+  }
   return fs.readFileSync(sp, 'utf8').trim() !== sha256File(p);
 }
 // state를 쓰고 해시를 갱신. 이미 변조된 원장이면 해시를 갱신하지 않는다(변조를 덮어 합법화하지 않음)

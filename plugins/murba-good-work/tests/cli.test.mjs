@@ -37,7 +37,7 @@ test('phase: invalid transition and missing requirement → exit 2', () => {
 test('approve: interactive allowed; headless needs --auto-approve', () => {
   const p = tmpProj(); toApprove(p);
   assert.equal(m(p, ['phase', 'setup']).code, 2);
-  assert.equal(m(p, ['approve']).code, 0);
+  assert.equal(m(p, ['approve', '--human']).code, 0);
   assert.equal(readState(p).approved, true);
   assert.equal(m(p, ['phase', 'setup']).code, 0);
   assert.equal(readState(p).auto, true);
@@ -55,7 +55,7 @@ test('approve: interactive allowed; headless needs --auto-approve', () => {
 });
 
 test('ac sync after approval with edited AC → ACCEPTANCE_EDITED exit 2', () => {
-  const p = tmpProj(); toApprove(p); m(p, ['approve']);
+  const p = tmpProj(); toApprove(p); m(p, ['approve', '--human']);
   write(p, '.murba/spec.md', SPEC.replace('return 3', 'return 4'));
   const r = m(p, ['ac', 'sync']);
   assert.equal(r.code, 2); assert.match(r.err, /ACCEPTANCE_EDITED/);
@@ -63,7 +63,7 @@ test('ac sync after approval with edited AC → ACCEPTANCE_EDITED exit 2', () =>
 });
 
 test('full loop: build/evaluate/fix cap/hold/qa/browser/report', () => {
-  const p = tmpProj(); toApprove(p); m(p, ['approve']); m(p, ['phase', 'setup']);
+  const p = tmpProj(); toApprove(p); m(p, ['approve', '--human']); m(p, ['phase', 'setup']);
   m(p, ['handoff', 'setup'], { stdin: 'setup done' }); write(p, '.murba/init.sh', '#!/bin/sh');
   assert.equal(m(p, ['phase', 'test-write']).code, 0);
   assert.equal(m(p, ['phase', 'build']).code, 2); // no test hashes
@@ -112,7 +112,7 @@ test('full loop: build/evaluate/fix cap/hold/qa/browser/report', () => {
 });
 
 test('evaluate: held current AC satisfies requirement', () => {
-  const p = tmpProj(); toApprove(p); m(p, ['approve']); m(p, ['phase', 'setup']);
+  const p = tmpProj(); toApprove(p); m(p, ['approve', '--human']); m(p, ['phase', 'setup']);
   m(p, ['handoff', 'setup'], { stdin: 's' }); write(p, '.murba/init.sh', 'x'); m(p, ['phase', 'test-write']);
   write(p, 'tests/a.test.js', 't'); m(p, ['lock-tests', 'tests/**']); m(p, ['handoff', 'test-write'], { stdin: 't' }); m(p, ['phase', 'build']);
   m(p, ['ac', 'next']); m(p, ['handoff', 'build'], { stdin: 'b' }); m(p, ['phase', 'evaluate']);
@@ -176,7 +176,7 @@ test('evidence-run creates fresh run dir and CURRENT pointer', () => {
 test('qa → fix --ac reopens a final NOT_VERIFIED AC within fix cap', () => {
   const p = tmpProj();
   toApprove(p);
-  assert.equal(m(p, ['approve']).code, 0);
+  assert.equal(m(p, ['approve', '--human']).code, 0);
   const st0 = readState(p);
   assert.equal(st0.approved, true);
   write(p, '.murba/state.json', JSON.stringify({ ...st0, phase: 'qa', final_sha: 'abc',
@@ -210,7 +210,7 @@ test('review#2: --skip cannot bypass approval or test lock', () => {
   write(q, '.murba/spec.md', SPEC);
   assert.equal(m(q, ['ac', 'sync']).code, 2);
   // 승인됐어도 테스트 잠금 없이 build 불가
-  const t = tmpProj(); toApprove(t); m(t, ['approve']);
+  const t = tmpProj(); toApprove(t); m(t, ['approve', '--human']);
   setState(t, s => { s.phase = 'test-write'; });
   write(t, '.murba/handoff/test-write.md', 'x');
   setState(t, s => { s.test_hashes = {}; });
@@ -234,7 +234,7 @@ test('review#7: headless approve uses pre-approval stored at init, not env at ap
 });
 
 test('review#8: lock-tests only in setup/test-write; leaving build with changed tests refused', () => {
-  const p = tmpProj(); toApprove(p); m(p, ['approve']);
+  const p = tmpProj(); toApprove(p); m(p, ['approve', '--human']);
   write(p, 'tests/a.test.js', 'a');
   assert.equal(m(p, ['lock-tests', 'tests/**']).code, 2);
   setState(p, s => { s.phase = 'test-write'; });
@@ -251,7 +251,7 @@ test('review#8: lock-tests only in setup/test-write; leaving build with changed 
 });
 
 test('review#12: spec edited after approval blocks transitions and shows in report', () => {
-  const p = tmpProj(); toApprove(p); m(p, ['approve']);
+  const p = tmpProj(); toApprove(p); m(p, ['approve', '--human']);
   write(p, '.murba/spec.md', SPEC + '\n추가 문장\n');
   const r = m(p, ['phase', 'setup']);
   assert.equal(r.code, 2); assert.match(r.err, /SPEC_EDITED/);
@@ -263,7 +263,7 @@ test('review#12: spec edited after approval blocks transitions and shows in repo
 
 // ---- 실수 방지망(ADR 0003): CLI가 구조적으로 강제하는 것 ----
 function toBuild(p) {
-  toApprove(p); m(p, ['approve']); m(p, ['phase', 'setup']);
+  toApprove(p); m(p, ['approve', '--human']); m(p, ['phase', 'setup']);
   m(p, ['handoff', 'setup'], { stdin: 's' }); write(p, '.murba/init.sh', 'x'); m(p, ['phase', 'test-write']);
   write(p, 'tests/a.test.js', 't'); m(p, ['lock-tests', 'tests/**']); m(p, ['handoff', 'test-write'], { stdin: 't' });
   assert.equal(m(p, ['phase', 'build']).code, 0);
@@ -299,7 +299,7 @@ test('ledger: edit outside CLI → LEDGER_TAMPERED on next command, report flags
 });
 
 test('re-init: interactive run cannot become headless/auto-approve; --force never approves', () => {
-  const p = tmpProj(); toApprove(p); m(p, ['approve']);
+  const p = tmpProj(); toApprove(p); m(p, ['approve', '--human']);
   assert.equal(m(p, ['init', '--force', '--headless', '--auto-approve']).code, 2);
   assert.equal(m(p, ['init', '--force'], { env: { MURBA_HEADLESS: '1' } }).code, 2);
   assert.equal(m(p, ['init', '--force']).code, 0);
@@ -330,4 +330,48 @@ test('lock-tests --amend: only in build/fix/evaluate, only locked files, needs r
   assert.match(fs.readFileSync(path.join(p, '.murba', 'report.md'), 'utf8'), /⚠️ 미검증 \| [^\n]*TEST_AMENDED: tests\/a\.test\.js/);
   setState(p, s => { s.phase = 'qa'; });
   assert.equal(m(p, ['lock-tests', '--amend', 'tests/a.test.js', '--reason', 'r']).code, 2);
+});
+
+test('r3 bug3: interactive approve needs a fresh hook token (script route refused)', () => {
+  const tok = p => path.join(p, '.murba', 'approve-token');
+  // hook이 돈 적 있는 프로젝트(caller 있음): 토큰 없으면 거부, --human도 무효
+  const p = tmpProj(); toApprove(p); asCaller(p, 'main');
+  let r = m(p, ['approve']); assert.equal(r.code, 2); assert.match(r.err, /APPROVE_NEEDS_HUMAN/);
+  assert.equal(m(p, ['approve', '--human']).code, 2);
+  // 오래된 토큰 거부
+  fs.writeFileSync(tok(p), JSON.stringify({ ts: new Date(Date.now() - 11 * 60_000).toISOString() }));
+  assert.equal(m(p, ['approve']).code, 2); assert.equal(readState(p).approved, false);
+  // 새 토큰: 승인되고 토큰 소비
+  fs.writeFileSync(tok(p), JSON.stringify({ ts: new Date().toISOString() }));
+  r = m(p, ['approve']); assert.equal(r.code, 0, r.err);
+  assert.equal(readState(p).approved, true); assert.equal(fs.existsSync(tok(p)), false);
+  // hook이 돈 적 없는 곳(caller 없음)에서는 --human 허용, 그냥 approve는 거부
+  const q = tmpProj(); toApprove(q);
+  assert.equal(m(q, ['approve']).code, 2);
+  assert.equal(m(q, ['approve', '--human']).code, 0);
+});
+
+test('r3 bug1: deleting state.sha256 then editing state → LEDGER_TAMPERED (never re-hashed)', () => {
+  const p = tmpProj(); toApprove(p);
+  assert.equal(readState(p).ledger_hash, true);
+  fs.rmSync(path.join(p, '.murba', 'state.sha256'));
+  const sp = path.join(p, '.murba', 'state.json');
+  fs.writeFileSync(sp, fs.readFileSync(sp, 'utf8').replace('"approved": false', '"approved": true'));
+  const r = m(p, ['phase', 'setup']); assert.equal(r.code, 2); assert.match(r.err, /LEDGER_TAMPERED/);
+  assert.equal(fs.existsSync(path.join(p, '.murba', 'state.sha256')), false);
+  assert.match(m(p, ['status']).out, /LEDGER_TAMPERED/);
+  assert.equal(m(p, ['report']).code, 0);
+  assert.match(fs.readFileSync(path.join(p, '.murba', 'report.md'), 'utf8'), /LEDGER_TAMPERED/);
+});
+
+test('r3 bug2: re-init cannot turn on auto-approve when the previous run had none', () => {
+  const h = tmpProj({ murba: false });
+  m(h, ['init', '--headless']);
+  let r = m(h, ['init', '--force', '--headless', '--auto-approve']); assert.equal(r.code, 2); assert.match(r.err, /재초기화 거부/);
+  r = m(h, ['init', '--force'], { env: { MURBA_HEADLESS: '1' } }); assert.equal(r.code, 2);
+  assert.equal(readState(h).auto_approve, false);
+  // 처음부터 사전 승인이 있던 실행은 재초기화해도 유지 가능
+  const h2 = tmpProj({ murba: false });
+  m(h2, ['init', '--headless', '--auto-approve']);
+  assert.equal(m(h2, ['init', '--force', '--headless', '--auto-approve']).code, 0);
 });

@@ -3,8 +3,11 @@
 // Threat model (ADR 0003): a safety net against a COOPERATIVE model's mistakes and test-gaming, not a sandbox.
 // Handled: wrappers (timeout/nice/env/stdbuf/…), eval and `sh -c`-style payloads, cd within one command line,
 // case-insensitive `.murba` paths, globs/braces that can reach `.murba`, $HOME/$PWD/$CLAUDE_PROJECT_DIR forms.
+// Also: $(…)/backticks keep the outer command (placeholder word, inner analysed alone), package runners (npx/dlx/bunx/npm exec/shx/python -m),
+// literal commands/deletes/SQL inside written scripts and `node -e`/`python -c` code, Makefile/package.json scripts/shebang files.
 // Out of scope (deliberate obfuscation): quote splitting inside a word (`hid""den`), variable indirection (`m=murba; $m`),
-// scripts written to disk and run later (the CLI's caller marker covers murba state changes), rewriting `.murba/caller`.
+// targets computed at run time in scripts (`os.homedir()`, `Path.home()`), files written by Bash and run later (the CLI's caller marker
+// covers murba state changes), rewriting `.murba/caller`.
 import path from 'node:path';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -28,10 +31,15 @@ export function globToRegex(glob) {
 export function matchAny(rel, globs) { return globs.some(g => globToRegex(g).test(rel)); }
 
 export const TEST_GLOBS = [
-  '**/*.test.*', '**/*.spec.*', '**/test/**', '**/tests/**', '**/__tests__/**', '**/e2e/**',
-  '**/conftest.py', '**/playwright.config.*', '**/vitest.config.*', '**/jest.config.*', '**/pytest.ini',
-  'test/**', 'tests/**', 'e2e/**', '__tests__/**', 'conftest.py', 'playwright.config.*', 'vitest.config.*', 'jest.config.*', 'pytest.ini',
+  '**/*.test.*', '**/*.spec.*', '**/test/**', '**/tests/**', '**/__tests__/**', '**/e2e/**', '**/spec/**',
+  '**/test_*.py', '**/*_test.py', '**/*_test.go', '**/*_spec.rb',
+  '**/conftest.py', '**/playwright.config.*', '**/vitest.config.*', '**/vitest.workspace.*', '**/jest.config.*', '**/pytest.ini',
+  '**/.mocharc*', '**/karma.conf.*',
+  'test/**', 'tests/**', 'e2e/**', '__tests__/**', 'spec/**', 'test_*.py', '*_test.py', '*_test.go', '*_spec.rb',
+  'conftest.py', 'playwright.config.*', 'vitest.config.*', 'vitest.workspace.*', 'jest.config.*', 'pytest.ini', '.mocharc*', 'karma.conf.*',
 ];
+// Shared configs whose TEST section is protected (the rest of the file stays editable): see guard changesRunnerConfig
+export const RUNNER_SECTION_FILES = /(^|\/)(pyproject\.toml|setup\.cfg|tox\.ini|vite\.config\.[cm]?[jt]s)$/;
 export const PROTECTED_GLOBS = ['.murba/**', '.claude/settings*.json', '**/.claude/settings*.json'];
 export const SECRET_GLOBS = ['**/.env', '**/.env.*', '.env', '.env.*', '**/*.pem', '**/*.key', '**/id_rsa*', '**/credentials*', 'credentials*'];
 export const DEFAULT_IMPL_GLOBS = ['src/**', 'app/**', 'lib/**', 'server/**', 'public/**'];
@@ -110,7 +118,8 @@ export function relIs(rel, concrete) { return hasGlob(rel) ? fullMatch(rel.split
 // rel (maybe a glob) can name `dir` or something inside it
 export function relUnder(rel, dir) { return hasGlob(rel) ? prefixMatch(rel.split('/'), dir.split('/')) : (rel === dir || rel.startsWith(dir + '/')); }
 
-export const isTestPath = rel => matchAny(rel, TEST_GLOBS);
+// a test file, or a folder that is itself a test folder (`test`, `e2e/` given as a directory)
+export const isTestPath = rel => matchAny(rel, TEST_GLOBS) || (!!rel && !hasGlob(rel) && matchAny(rel + '/_', TEST_GLOBS));
 export const isSecretPath = rel => matchAny(rel, SECRET_GLOBS);
 
 // Split a shell command into segments on ; && || | and newlines, respecting quotes.
@@ -136,9 +145,16 @@ export function splitSegments(cmd) {
   for (let i = cuts.length - 1; i >= 0; i--) text = text.slice(0, cuts[i][0]) + '\n' + text.slice(cuts[i][1]);
 
   const segs = [];
+  const subs = [];
   let cur = '', q = null;
   for (let i = 0; i < text.length; i++) {
     const c = text[i];
+    // command substitution $(…) / `…` (also inside "…"): the outer command keeps a placeholder word, the inner command is analysed on its own
+    if (q !== "'" && ((c === '$' && text[i + 1] === '(') || c === '`')) {
+      const [inner, end] = readSubst(text, i);
+      if (!inner.startsWith('(')) subs.push(inner); // $((arithmetic)) is not a command
+      cur += substWord(inner); i = end - 1; continue;
+    }
     if (q) { cur += c; if (c === q) q = null; else if (c === '\\' && q === '"') { cur += text[++i] ?? ''; } continue; }
     if (c === "'" || c === '"') { q = c; cur += c; continue; }
     if (c === '\\') { cur += c + (text[++i] ?? ''); continue; }
@@ -147,12 +163,36 @@ export function splitSegments(cmd) {
     if (c === ';' || c === '\n') { segs.push({ text: cur, sep: c }); cur = ''; continue; }
     if (c === '|') { segs.push({ text: cur, sep: '|' }); cur = ''; continue; }
     if (c === '&') { segs.push({ text: cur, sep: '&' }); cur = ''; continue; }
-    // subshells, command substitution, backticks: analyse inner commands as their own segments
-    if (c === '(' || c === ')' || c === '`') { segs.push({ text: cur, sep: c }); cur = ''; continue; }
+    // subshells and process substitution: analyse inner commands as their own segments
+    if (c === '(' || c === ')') { segs.push({ text: cur, sep: c }); cur = ''; continue; }
     cur += c;
   }
   segs.push({ text: cur, sep: '' });
-  return { segments: segs.map(s => ({ ...s, text: s.text.trim() })).filter(s => s.text), heredocs };
+  const out = segs.map(s => ({ ...s, text: s.text.trim() })).filter(s => s.text);
+  for (const sub of subs) { const r = splitSegments(sub); out.push(...r.segments.map(s => ({ ...s, subst: true }))); heredocs.push(...r.heredocs); }
+  return { segments: out, heredocs };
+}
+
+// Placeholder for a command substitution's value: unknown at check time. `$(command -v murba)` stays recognisable as murba.
+export const SUBST = '$(__subst__)';
+function substWord(inner) { return /^\s*(command\s+-v|which|type\s+-p)\s+murba\s*$/.test(inner) ? 'murba' : SUBST; }
+// text[i] is '$' (of "$(") or '`'. Returns [inner, endIndexExclusive]; nesting and quotes respected.
+function readSubst(text, i) {
+  if (text[i] === '`') {
+    let k = i + 1, inner = '';
+    while (k < text.length && text[k] !== '`') { if (text[k] === '\\') { inner += text[k + 1] ?? ''; k += 2; continue; } inner += text[k++]; }
+    return [inner, k + 1];
+  }
+  let depth = 1, k = i + 2, q = null;
+  for (; k < text.length; k++) {
+    const c = text[k];
+    if (q) { if (c === q) q = null; else if (c === '\\' && q === '"') k++; continue; }
+    if (c === "'" || c === '"') { q = c; continue; }
+    if (c === '\\') { k++; continue; }
+    if (c === '(') depth++;
+    else if (c === ')' && --depth === 0) break;
+  }
+  return [text.slice(i + 2, k), k + 1];
 }
 
 export function tokenize(seg) {
@@ -178,8 +218,9 @@ const WRAPPERS = {
   nice: ['-n', '--adjustment'], ionice: ['-c', '-n', '-p', '-P', '-u', '--class', '--classdata'],
   stdbuf: ['-i', '-o', '-e', '--input', '--output', '--error'], caffeinate: ['-t', '-w'], chronic: [], unbuffer: [],
   timeout: ['-s', '-k', '--signal', '--kill-after'], gtimeout: ['-s', '-k', '--signal', '--kill-after'], xargs: XARGS_VALUE_OPTS,
+  watch: ['-n', '--interval', '-d'], 'cross-env': [], dotenv: ['-e', '-c', '-v'],
 };
-export function commandWords(tokens) {
+function stripWrappers(tokens) {
   let i = 0;
   while (i < tokens.length) {
     const t = tokens[i];
@@ -198,7 +239,34 @@ export function commandWords(tokens) {
     }
     break;
   }
-  return tokens.slice(i);
+  return i ? tokens.slice(i) : tokens;
+}
+// Package runners: `npx [-y] [-p pkg] cmd`, `pnpm dlx|exec cmd`, `yarn dlx|exec cmd`, `bunx cmd`, `npm exec [--] cmd`, `shx rm …`,
+// `python -m twine …` → the command they run. Package names map to their CLI names.
+const RUNNER_VALUE_OPTS = ['-p', '--package', '--registry', '--cache', '-w', '--workspace', '--prefix', '-C', '--dir', '--filter', '-F', '--userconfig'];
+const PKG_CLI = { 'netlify-cli': 'netlify', 'firebase-tools': 'firebase', 'aws-cdk': 'cdk', 'sequelize-cli': 'sequelize', '@changesets/cli': 'changeset', '@vercel/cli': 'vercel', 'del-cli': 'del', 'rimraf-cli': 'rimraf', 'trash-cli': 'trash', '@railway/cli': 'railway', '@angular/cli': 'ng' };
+function unwrapRunner(w) {
+  const c0 = base(w[0]);
+  let k = -1;
+  if (['npx', 'bunx', 'pnpx'].includes(c0) || c0 === 'shx') k = 1;
+  else if (['pnpm', 'yarn', 'bun'].includes(c0) && ['dlx', 'exec', 'x'].includes(w[1])) k = 2;
+  else if (c0 === 'npm' && ['exec', 'x'].includes(w[1])) k = 2;
+  else if (/^python[0-9.]*$/.test(c0) && w[1] === '-m' && w[2]) return [w[2], ...w.slice(3)];
+  if (k < 0) return w;
+  while (w[k] && w[k].startsWith('-') && w[k] !== '-') { if (w[k] === '--') { k++; break; } if (RUNNER_VALUE_OPTS.includes(w[k])) k++; k++; }
+  if (!w[k]) return w;
+  const pkg = w[k].replace(/(.)@[^/]*$/, '$1');
+  return [PKG_CLI[pkg] || pkg.split('/').pop(), ...w.slice(k + 1)];
+}
+export function commandWords(tokens) {
+  let w = tokens;
+  for (let round = 0; round < 6; round++) {
+    w = stripWrappers(w);
+    const u = w.length ? unwrapRunner(w) : w;
+    if (u === w) return w;
+    w = u;
+  }
+  return w;
 }
 
 // git: skip global options (and their values) to find the subcommand index
@@ -274,7 +342,10 @@ function inputRedirects(seg) {
 }
 
 const DB_CLIENTS = ['psql', 'mysql', 'sqlite3', 'mongosh', 'mongo', 'redis-cli', 'mariadb', 'duckdb', 'sqlcmd', 'clickhouse-client', 'cockroach'];
-const DB_DROP_RE = /\b(drop\s+(table|database|schema|collection)|truncate\s+(table\s+)?\w|\.drop(Database)?\s*\()/i;
+const DB_DROP_BASE = /\b(drop\s+(table|database|schema|collection)|truncate\s+(table\s+)?\w|\.drop(Database)?\s*\()/i;
+// DROP/TRUNCATE, or DELETE FROM / UPDATE … SET without WHERE in the same statement
+const DB_DROP_RE = { test: sql => DB_DROP_BASE.test(sql) || String(sql).split(';').some(st => (/\bdelete\s+from\s+\S/i.test(st) || /\bupdate\s+\S+\s+set\b/i.test(st)) && !/\bwhere\b/i.test(st)) };
+const DB_FILE_RE = /\.(db|sqlite|sqlite3|db3)$/i;
 const FIND_FILTERS = ['-name', '-iname', '-path', '-ipath', '-wholename', '-iwholename', '-regex', '-iregex', '-newer', '-mtime', '-mmin', '-atime', '-amin', '-ctime', '-cmin', '-size', '-empty', '-user', '-group', '-perm', '-links', '-inum', '-samefile', '-lname', '-ilname'];
 
 // find <roots…> <expression>: roots are the args before the first option/expression token
@@ -283,7 +354,17 @@ export function findRoots(w) {
   for (let k = 1; k < w.length; k++) { const t = w[k]; if (/^[-(!]/.test(t) || t === '\\(') break; roots.push(t); }
   return roots.length ? roots : ['.'];
 }
-export const findHasFilter = w => w.some(t => FIND_FILTERS.includes(t));
+// a selecting predicate; negated ones (`! -name .git`, `-not -name x`) don't narrow "everything but x" enough to count
+export const findHasFilter = w => w.some((t, k) => FIND_FILTERS.includes(t) && !['!', '-not', '\\!'].includes(w[k - 1]));
+// `.`, `*`, `./*`, $PWD … resolving to the project root
+function isProjRoot(t, proj, cwd) {
+  if (!proj) return false;
+  const x = expandVars(t, proj, cwd);
+  if (/\$/.test(x)) return false;
+  const s = (x === '*' || x === './*') ? '.' : x.replace(/\/\*$/, '');
+  const a = path.resolve(cwd || proj, s), p = path.resolve(proj);
+  return a === p || realish(a) === realish(p);
+}
 export const findDeletes = w => w.includes('-delete') || w.some((t, k) => ['-exec', '-execdir', '-ok', '-okdir'].includes(t) && base(w[k + 1]) === 'rm');
 // -name/-path patterns of a find command
 export function findNamePatterns(w) { const out = []; for (let k = 1; k < w.length - 1; k++) if (['-name', '-iname', '-path', '-ipath', '-wholename'].includes(w[k])) out.push(w[k + 1]); return out; }
@@ -298,7 +379,14 @@ function isTmpPath(abs) {
 function badDeleteTarget(t, proj, { findMode = false, cwd = proj } = {}) {
   if (/\$\(|`/.test(t)) return `명령 치환 결과를 재귀 삭제(${t}) — 대상이 불확실`;
   const x = expandVars(t, proj, cwd);
-  if (/\$/.test(x)) return null; // other variables: unknown, left to the user
+  if (/\$/.test(x)) {
+    // other variables are unknown and left to the user, except the classic mistakes
+    if (/\$\{[A-Za-z_]\w*[%#/^,]/.test(x)) return `매개변수 확장으로 만든 경로를 재귀 삭제(${t}) — 대상이 불확실`;
+    if (/^\$(\{OLDPWD\}|OLDPWD)\/?$/.test(x)) return `이전 디렉터리($OLDPWD) 재귀 삭제`;
+    if (/^\$(\{PWD\}|PWD)\/?\*?$/.test(x)) return `현재 디렉터리 재귀 삭제(${t})`;
+    if (/^\$(\{[A-Za-z_]\w*\}|[A-Za-z_]\w*)\/\*?$/.test(x)) return `변수가 비면 루트가 되는 경로 재귀 삭제(${t}) — \${VAR:?}로 쓰세요`;
+    return null;
+  }
   if (!proj && !cwd && !path.isAbsolute(x)) return (['.', './', '*', './*'].includes(x) || /^\.\.(\/|$)/.test(x)) ? `현재·상위 경로 재귀 삭제(${t})` : null;
   const home = os.homedir();
   const stripped = (x === '*' || x === './*') ? '.' : x.replace(/\/\*$/, '');
@@ -328,28 +416,72 @@ function badDeleteTarget(t, proj, { findMode = false, cwd = proj } = {}) {
 }
 
 // SQL a segment carries: its own text, heredoc bodies (when it has <<), input-redirect / -f files (when small)
-function segmentSql(s, heredocs, proj) {
+// written: literal content echoed into files earlier in the same command line (path → text)
+function segmentSql(s, heredocs, proj, written = {}) {
   const parts = [s.text];
   if (/<</.test(s.text)) parts.push(...heredocs.map(h => h.body));
   const files = inputRedirects(s.text);
   for (let k = 0; k < s.words.length - 1; k++) if (['-f', '--file'].includes(s.words[k])) files.push(s.words[k + 1]);
+  if (s.c0 === 'cat') files.push(...s.words.slice(1).filter(t => !t.startsWith('-')));
+  for (const t of s.words) { const m = /^\.read\s+(\S+)/.exec(t); if (m) files.push(m[1]); }
   for (const f of files) {
-    try { const p = path.resolve(s.cwd || proj || process.cwd(), expandVars(f, proj, s.cwd)); if (fs.statSync(p).size < 2_000_000) parts.push(fs.readFileSync(p, 'utf8')); } catch {}
+    const p = path.resolve(s.cwd || proj || process.cwd(), expandVars(f, proj, s.cwd));
+    if (written[p] != null) { parts.push(written[p]); continue; }
+    try { if (fs.statSync(p).size < 2_000_000) parts.push(fs.readFileSync(p, 'utf8')); } catch {}
   }
   return parts.join('\n');
 }
 
 // Returns {deny:true, reason, cls} or null. Irreversible / obfuscation rules (apply to every agent).
+const RM_LIKE = ['rimraf', 'del', 'trash', 'trash-put', 'shred'];
+const EXEC_SUBCMD_MUTATING = /^(POST|PUT|PATCH|DELETE)$/i;
+function ghApiMutates(w) {
+  let method = null; let fields = false;
+  for (let k = 2; k < w.length; k++) {
+    const t = w[k];
+    if (t === '-X' || t === '--method') method = w[k + 1] || '';
+    else if (/^(-X|--method=)/.test(t) && t.length > 2) method = t.replace(/^(-X|--method=)/, '');
+    if (/^(-f|-F|--field|--raw-field|--input)(=|$)/.test(t) || /^-[fF]./.test(t)) fields = true;
+  }
+  if (method) return EXEC_SUBCMD_MUTATING.test(method.replace(/['"]/g, ''));
+  return fields; // gh api defaults to POST when fields or input are given
+}
+function deny(reason, rule) { return { deny: true, reason, rule }; }
+// words minus redirections (`< file`, `>out`, `2>&1`): they are not arguments
+function dropRedirects(words) {
+  const out = [];
+  for (let k = 0; k < words.length; k++) {
+    const t = words[k];
+    if (/^[0-9]*(<<?<?|>>?|&>>?)$/.test(t)) { k++; continue; }
+    if (/^[0-9]*(<|>>?|&>>?)./.test(t)) continue;
+    out.push(t);
+  }
+  return out;
+}
+
+// node -e / python -c code and heredoc bodies fed to an interpreter, as [code, kind]
+function inlineCodes(s, heredocs) {
+  const kind = INLINE_KIND[s.c0];
+  if (!kind) return [];
+  const out = [];
+  for (let k = 1; k < s.words.length - 1; k++) if (['-e', '-c', '-p', '--eval', '--print', '-E'].includes(s.words[k])) out.push([s.words[k + 1], kind]);
+  if (/<</.test(s.text)) for (const h of heredocs) out.push([h.body, kind]);
+  return out;
+}
+
 export function analyzeBash(cmd, proj = null, depth = 0) {
   const raw = String(cmd || '');
-  if (/\$\{IFS\}|\$IFS\b/.test(raw)) return { deny: true, reason: '난독화된 명령(${IFS})', rule: 'obfuscation' };
-  if (/:\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/.test(raw)) return { deny: true, reason: 'fork bomb', rule: 'obfuscation' };
+  if (/\$\{IFS\}|\$IFS\b/.test(raw)) return deny('난독화된 명령(${IFS})', 'obfuscation');
+  if (/:\s*\(\s*\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/.test(raw)) return deny('fork bomb', 'obfuscation');
   const { segs, heredocs } = walkSegments(raw, proj);
 
   // heredoc feeding a shell interpreter
   for (const s of segs) {
-    if (/<</.test(s.text) && s.words.length && (SHELLS.includes(s.c0) || s.c0 === 'eval') && !shellPayload(s.words)) return { deny: true, reason: 'heredoc을 셸로 실행', rule: 'obfuscation' };
+    if (/<</.test(s.text) && s.words.length && (SHELLS.includes(s.c0) || s.c0 === 'eval') && !shellPayload(s.words)) return deny('heredoc을 셸로 실행', 'obfuscation');
   }
+  // literal content echoed into files in this command line (for `echo 'DROP …' > f && psql -f f`)
+  const written = {};
+  for (const s of segs) if (['echo', 'printf'].includes(s.c0)) for (const t of redirectTargets(s.text)) written[path.resolve(s.cwd || proj || process.cwd(), expandVars(t, proj, s.cwd))] = s.text;
 
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i];
@@ -358,99 +490,167 @@ export function analyzeBash(cmd, proj = null, depth = 0) {
     const c0 = s.c0;
     const cwd = s.cwd;
     const prev = segs[i - 1];
-    const pipedIn = prev && prev.sep === '|';
+    const pipedIn = prev && prev.sep === '|' && !s.subst;
 
     // piping into a shell or eval
     if (pipedIn && (SHELLS.includes(c0) || c0 === 'eval') && !shellPayload(w)) {
       const p0 = prev.c0;
-      if (['curl', 'wget'].includes(p0)) return { deny: true, reason: '원격 스크립트를 셸로 실행(curl|sh)', rule: 'remote-exec' };
-      if (p0 === 'base64' || /base64\s+(-d|--decode|-D)/.test(prev.text) || ['xxd', 'openssl', 'printf', 'echo'].includes(p0)) return { deny: true, reason: '디코딩한 내용을 셸로 실행', rule: 'obfuscation' };
-      return { deny: true, reason: '파이프 입력을 셸로 실행', rule: 'obfuscation' };
+      if (['curl', 'wget'].includes(p0)) return deny('원격 스크립트를 셸로 실행(curl|sh)', 'remote-exec');
+      if (p0 === 'base64' || /base64\s+(-d|--decode|-D)/.test(prev.text) || ['xxd', 'openssl', 'printf', 'echo'].includes(p0)) return deny('디코딩한 내용을 셸로 실행', 'obfuscation');
+      return deny('파이프 입력을 셸로 실행', 'obfuscation');
     }
-    if (c0 === 'eval' && /base64|\\x[0-9a-f]{2}/i.test(s.text)) return { deny: true, reason: 'eval 난독화', rule: 'obfuscation' };
+    if (c0 === 'eval' && /base64|\\x[0-9a-f]{2}/i.test(s.text)) return deny('eval 난독화', 'obfuscation');
     const payload = shellPayload(w);
-    if (payload !== null && /base64|\$\(.*curl|\\x[0-9a-f]{2}/i.test(s.text)) return { deny: true, reason: '셸 -c 난독화', rule: 'obfuscation' };
+    if (payload !== null && /base64|\$\(.*curl|\\x[0-9a-f]{2}/i.test(s.text)) return deny('셸 -c 난독화', 'obfuscation');
     // eval / sh -c payloads are analysed as commands
     const inner = payload !== null ? payload : (c0 === 'eval' ? w.slice(1).join(' ') : null);
     if (inner && depth < 4) { const r = analyzeBash(inner, proj, depth + 1); if (r && r.deny) return { ...r, reason: `${c0} 안: ${r.reason}` }; }
+    // node -e / python -c / interpreter heredocs: literal commands, deletes and SQL inside the code
+    if (depth < 4) for (const [code, kind] of inlineCodes(s, heredocs)) { const r = analyzeScriptContent(code, kind, proj, depth + 1); if (r) return { ...r, reason: `${c0} 코드 안: ${r.reason}` }; }
 
-    // rm (also via xargs: targets come from the piped-in echo/printf/find)
-    if (c0 === 'rm') {
+    // rm and rm-like tools (also via xargs: targets come from the piped-in echo/printf/find, or are unknown)
+    if (c0 === 'unlink' && w.slice(1).some(t => DB_FILE_RE.test(t))) return deny('DB 파일 삭제', 'db-drop');
+    if (c0 === 'rm' || RM_LIKE.includes(c0)) {
       const flags = w.slice(1).filter(t => t.startsWith('-'));
-      const recursive = flags.some(f => /^-[a-zA-Z]*[rR]/.test(f) || f === '--recursive');
-      const targets = w.slice(1).filter(t => !t.startsWith('-'));
-      // `rm -rf $(…)` / `rm -rf \`…\``: the target is a command substitution that the splitter cut off
-      if (recursive && (s.sep === '`' || (s.sep === '(' && /\$$/.test(s.text)))) return { deny: true, reason: '명령 치환 결과를 재귀 삭제 — 대상이 불확실', rule: 'rm-root' };
+      const recursive = c0 !== 'rm' || flags.some(f => /^-[a-zA-Z]*[rR]/.test(f) || f === '--recursive');
+      const targets = dropRedirects(w.slice(1)).filter(t => !t.startsWith('-'));
+      for (const t of targets) {
+        if (DB_FILE_RE.test(t)) return deny(`DB 파일 삭제(${t})`, 'db-drop');
+        if (recursive && path.basename(t.replace(/\/+$/, '')) === '.git') return deny(`git 기록 삭제(${t})`, 'rm-root');
+      }
       let findMode = false;
-      if (pipedIn && /(^|\s)xargs(\s|$)/.test(s.text)) {
+      const viaXargs = /(^|\s)xargs(\s|$)/.test(s.text);
+      const fromList = pipedIn && ['echo', 'printf', 'find'].includes(prev.c0);
+      if (viaXargs && pipedIn) {
         const pw = prev.words;
         if (['echo', 'printf'].includes(prev.c0)) targets.push(...pw.slice(1).filter(t => !t.startsWith('-')));
         if (prev.c0 === 'find') {
           targets.push(...findRoots(pw)); findMode = true;
-          for (const r of findRoots(pw)) if (!findHasFilter(pw) && !badDeleteTarget(r, proj, { findMode: true, cwd: prev.cwd }) && proj && path.resolve(prev.cwd || proj, expandVars(r, proj, prev.cwd)) === path.resolve(proj)) return { deny: true, reason: `find ${r} | xargs rm: 조건(-name 등) 없이 프로젝트 전체 삭제`, rule: 'rm-root' };
+          for (const r of findRoots(pw)) if (!findHasFilter(pw) && isProjRoot(r, proj, prev.cwd)) return deny(`find ${r} | xargs rm: 조건(-name 등) 없이 프로젝트 전체 삭제`, 'rm-root');
         }
-        if (!['echo', 'printf', 'find'].includes(prev.c0) && recursive && !targets.length) return { deny: true, reason: '입력으로 받은 대상을 재귀 삭제(xargs rm) — 대상이 불확실', rule: 'rm-root' };
       }
+      if (viaXargs && recursive && !fromList && !targets.length) return deny('입력으로 받은 대상을 재귀 삭제(xargs rm) — 대상이 불확실', 'rm-root');
       if (recursive) {
-        for (const t of targets) {
+        for (const t0 of targets) for (const t of expandBraces(t0)) {
           const why = badDeleteTarget(t, proj, { findMode, cwd: findMode ? prev.cwd : cwd });
-          if (why) return { deny: true, reason: why, rule: why.startsWith('홈') ? 'rm-home' : 'rm-root' };
+          if (why) return deny(why, why.startsWith('홈') ? 'rm-home' : 'rm-root');
         }
       }
     }
     // find … -delete / -exec rm
     if (c0 === 'find' && findDeletes(w)) {
+      const names = w.filter((t, k) => ['-name', '-iname'].includes(w[k - 1])).map(t => t.replace(/^['"]|['"]$/g, ''));
+      if (names.includes('.git')) return deny('git 기록 삭제(find -name .git)', 'rm-root');
+      if (names.some(n => DB_FILE_RE.test(n))) return deny('DB 파일 삭제(find)', 'db-drop');
       for (const t of findRoots(w)) {
         const why = badDeleteTarget(t, proj, { findMode: true, cwd });
-        if (why) return { deny: true, reason: why, rule: 'rm-root' };
-        if (proj && !findHasFilter(w) && path.resolve(cwd || proj, expandVars(t, proj, cwd)) === path.resolve(proj)) return { deny: true, reason: `find ${t} -delete: 조건(-name 등) 없이 프로젝트 전체 삭제`, rule: 'rm-root' };
+        if (why) return deny(why, 'rm-root');
+        if (!findHasFilter(w) && isProjRoot(t, proj, cwd)) return deny(`find ${t} -delete: 조건(-name 등) 없이 프로젝트 전체 삭제`, 'rm-root');
       }
+    }
+    // rsync --delete into home / outside the project
+    if (c0 === 'rsync' && w.some(t => /^--delete/.test(t))) {
+      const args = w.slice(1).filter(t => !t.startsWith('-'));
+      const why = args.length >= 2 ? badDeleteTarget(args[args.length - 1], proj, { cwd }) : null;
+      if (why) return deny(`rsync --delete 대상: ${why}`, 'rm-root');
+    }
+    if (c0 === 'mv') {
+      const args = w.slice(1).filter(t => !t.startsWith('-'));
+      for (const t of args.slice(0, -1)) { const why = badDeleteTarget(t, proj, { cwd }); if (why && /^(홈 디렉터리 재귀|프로젝트 루트|프로젝트 상위|루트)/.test(why)) return deny(`옮기기(mv)로 ${why}`, 'rm-home'); }
     }
 
     // git (global options like -C dir / -c k=v are skipped to find the subcommand)
     if (c0 === 'git') {
       const si = gitSubIndex(w);
-      for (let k = 1; k < (si > 0 ? si : w.length); k++) if (w[k] === '-c' && /^alias\./i.test(w[k + 1] || '')) return { deny: true, reason: 'git -c alias.*(별칭으로 명령 우회)', rule: 'git-alias' };
+      for (let k = 1; k < (si > 0 ? si : w.length); k++) if (w[k] === '-c' && /^alias\./i.test(w[k + 1] || '')) return deny('git -c alias.*(별칭으로 명령 우회)', 'git-alias');
       const sub = si > 0 ? w[si] : null;
-      if (sub === 'push') return { deny: true, reason: 'git push는 v0.1에서 비가역 작업(결정 큐로)', rule: 'git-push' };
-      if (sub === 'tag' && w.slice(si + 1).some(t => !t.startsWith('-')) && !w.includes('-l') && !w.includes('--list')) return { deny: true, reason: 'git tag 생성은 사용자 승인 필요', rule: 'git-tag' };
-      if (sub === 'config' && w.slice(si + 1).some((t, k, a) => /^alias\./i.test(t) && /\bpush\b/.test(a.slice(k + 1).join(' ')))) return { deny: true, reason: 'push 별칭 설정', rule: 'git-alias' };
+      if (sub === 'push') return deny('git push는 v0.1에서 비가역 작업(결정 큐로)', 'git-push');
+      if (sub === 'subtree' && w[si + 1] === 'push') return deny('git subtree push', 'git-push');
+      if (sub === 'tag') {
+        const rest = w.slice(si + 1);
+        const listMode = rest.some(t => TAG_LIST_OPTS.includes(t.split('=')[0]) || /^-n\d*$/.test(t));
+        if (!listMode && rest.some(t => !t.startsWith('-'))) return deny('git tag 생성은 사용자 승인 필요', 'git-tag');
+      }
+      if (sub === 'config' && w.slice(si + 1).some((t, k, a) => /^alias\./i.test(t) && /\bpush\b/.test(a.slice(k + 1).join(' ')))) return deny('push 별칭 설정', 'git-alias');
     }
     if (c0 === 'gh') {
       const a = w.slice(1).join(' ');
-      if (/^(release\s+(create|delete|edit)|pr\s+merge|repo\s+(delete|create|edit|rename|archive)|api\b.*(-X|--method)[=\s]*['"]?(POST|PUT|PATCH|DELETE))/i.test(a)) return { deny: true, reason: `외부 게시·변경(gh ${w[1]} ${w[2] || ''})`, rule: 'gh-publish' };
-      if (/^repo\s+sync\b/.test(a) && /(^|\s)(--force|-f)(\s|$)/.test(a)) return { deny: true, reason: 'gh repo sync --force', rule: 'gh-publish' };
+      if (/^(release\s+(create|delete|edit|upload)|pr\s+merge|repo\s+(delete|create|edit|rename|archive)|workflow\s+run)\b/i.test(a)) return deny(`외부 게시·변경(gh ${w[1]} ${w[2] || ''})`, 'gh-publish');
+      if (w[1] === 'api' && ghApiMutates(w)) return deny('외부 변경(gh api 쓰기 요청)', 'gh-publish');
+      if (/^repo\s+sync\b/.test(a) && /(^|\s)(--force|-f)(\s|$)/.test(a)) return deny('gh repo sync --force', 'gh-publish');
     }
-    // publish / deploy
-    if (['npm', 'pnpm', 'yarn', 'bun'].includes(c0) && w.includes('publish')) return { deny: true, reason: '패키지 게시', rule: 'publish' };
-    if (c0 === 'npx' && w.slice(1).some((t, k, a) => ['npm', 'pnpm', 'yarn'].includes(t) && a[k + 1] === 'publish')) return { deny: true, reason: '패키지 게시', rule: 'publish' };
-    if (c0 === 'vercel' && (w.includes('--prod') || w.includes('deploy') || w.includes('promote') || w.length === 1)) return { deny: true, reason: '배포(vercel)', rule: 'deploy' };
-    if (['netlify', 'firebase', 'fly', 'flyctl', 'heroku', 'railway', 'wrangler', 'serverless', 'sls'].includes(c0) && w.some(t => /^(deploy|publish|release)$/.test(t))) return { deny: true, reason: `배포(${c0})`, rule: 'deploy' };
-    if (c0 === 'terraform' && w.some(t => ['apply', 'destroy'].includes(t))) return { deny: true, reason: 'terraform apply/destroy', rule: 'deploy' };
-    if (c0 === 'kubectl' && w.some(t => ['apply', 'delete', 'replace', 'rollout'].includes(t))) return { deny: true, reason: 'kubectl 변경', rule: 'deploy' };
-    if (c0 === 'docker' && w.includes('push')) return { deny: true, reason: 'docker push', rule: 'publish' };
+    // publish / deploy / release
+    const r = publishDeploy(c0, w);
+    if (r) return deny(r, /배포|deploy/.test(r) ? 'deploy' : 'publish');
     // DB: SQL in the segment of a DB client (text, heredoc, < file, -f file) or piped into one
     const isDbClient = w.some(t => DB_CLIENTS.includes(base(t)));
     const next = segs[i + 1];
-    const pipesToDb = s.sep === '|' && next && next.words.some(t => DB_CLIENTS.includes(base(t)));
-    if ((isDbClient || pipesToDb) && DB_DROP_RE.test(segmentSql(s, heredocs, proj))) return { deny: true, reason: 'DB 데이터 삭제(DROP/TRUNCATE)', rule: 'db-drop' };
-    if (c0 === 'redis-cli' && w.some(t => /^flush(all|db)$/i.test(t))) return { deny: true, reason: 'redis FLUSH', rule: 'db-drop' };
+    const pipesToDb = s.sep === '|' && next && !next.subst && next.words.some(t => DB_CLIENTS.includes(base(t)));
+    if ((isDbClient || pipesToDb) && DB_DROP_RE.test(segmentSql(s, heredocs, proj, written))) return deny('DB 데이터 삭제(DROP/TRUNCATE)', 'db-drop');
+    if (c0 === 'dropdb' || (c0 === 'mysqladmin' && w.some(t => /^drop$/i.test(t)))) return deny(`DB 삭제(${c0})`, 'db-drop');
+    if (c0 === 'redis-cli' && w.some(t => /^flush(all|db)$/i.test(t))) return deny('redis FLUSH', 'db-drop');
     const joined = w.join(' ');
-    if (/\bprisma\s+(migrate\s+(deploy|reset)|db\s+push)/.test(joined) || /\balembic\s+(upgrade|downgrade)\b/.test(joined) || /\b(db:drop|db:reset|migrate:fresh|migrate:reset)\b/.test(joined) || /\bsupabase\s+db\s+(push|reset)\b/.test(joined) || /\bknex\s+migrate:(latest|rollback)\b/.test(joined)) return { deny: true, reason: 'DB 마이그레이션 적용·초기화', rule: 'db-migrate' };
+    if (MIGRATE_RES.some(re => re.test(joined))) return deny('DB 마이그레이션 적용·초기화', 'db-migrate');
     // disk
-    if (c0 === 'dd' && w.some(t => /^of=\/dev\//.test(t))) return { deny: true, reason: '디스크 직접 쓰기', rule: 'disk' };
-    if (/^mkfs/.test(c0)) return { deny: true, reason: '파일시스템 포맷', rule: 'disk' };
-    if (c0 === 'chmod' && w.includes('-R') && w.some(t => t === '/' || t === '~')) return { deny: true, reason: '루트·홈 권한 일괄 변경', rule: 'disk' };
+    if (c0 === 'dd' && w.some(t => /^of=\/dev\//.test(t))) return deny('디스크 직접 쓰기', 'disk');
+    if (/^mkfs/.test(c0)) return deny('파일시스템 포맷', 'disk');
+    if (c0 === 'chmod' && w.includes('-R') && w.some(t => t === '/' || t === '~')) return deny('루트·홈 권한 일괄 변경', 'disk');
     // secrets via redirect
     for (const t of redirectTargets(s.text)) {
       const rel = t.replace(/^\.\//, '');
-      if (matchAny(rel, SECRET_GLOBS)) return { deny: true, reason: `비밀 파일 쓰기(${t})`, rule: 'secret-write' };
+      if (matchAny(rel, SECRET_GLOBS)) return deny(`비밀 파일 쓰기(${t})`, 'secret-write');
     }
     if (['tee', 'cp', 'mv'].includes(c0)) {
       const dst = w[w.length - 1];
-      if (dst && matchAny(dst.replace(/^\.\//, ''), SECRET_GLOBS) && w.length > 1) return { deny: true, reason: `비밀 파일 쓰기(${dst})`, rule: 'secret-write' };
+      if (dst && matchAny(dst.replace(/^\.\//, ''), SECRET_GLOBS) && w.length > 1) return deny(`비밀 파일 쓰기(${dst})`, 'secret-write');
     }
   }
+  return null;
+}
+
+const TAG_LIST_OPTS = ['-l', '--list', '--contains', '--no-contains', '--points-at', '--merged', '--no-merged', '--sort', '--column', '--no-column', '--format', '-v', '--verify', '-i', '--ignore-case'];
+const MIGRATE_RES = [
+  /\bprisma\s+migrate\s+dev\b/,
+  /\bprisma\s+(migrate\s+(deploy|reset)|db\s+push)/, /\balembic\s+(upgrade|downgrade)\b/, /\b(db:drop|db:reset|migrate:fresh|migrate:reset)\b/,
+  /\bsupabase\s+db\s+(push|reset)\b/, /\bknex\s+migrate:(latest|rollback|up|down)\b/,
+  /\bmanage\.py\s+(migrate|flush|sqlflush|reset_db)\b/, /\b(rails|rake)\s+db:(migrate|rollback|schema:load|setup)\b/,
+  /\bsequelize(-cli)?\s+db:(migrate|seed)/, /\btypeorm(-ts-node-\w+)?\s+migration:(run|revert)\b/, /\bdrizzle-kit\s+(push|migrate|drop)\b/,
+  /\bflyway\b.*\b(migrate|clean|baseline)\b/, /\bgoose\b.*\s(up|down|reset|redo)(\s|$)/,
+];
+// name-based: `npm run deploy`, `make release` … (the script body is not visible here)
+const RELEASE_NAME = /^(deploy|release|publish)([:._-].*)?$/;
+function publishDeploy(c0, w) {
+  const a1 = w[1];
+  if (['npm', 'pnpm', 'yarn', 'bun'].includes(c0)) {
+    if (w.includes('publish')) return '패키지 게시';
+    if (a1 === 'version' && w.length > 2) return '버전 올리기·tag 생성(npm version)';
+    const name = ['run', 'run-script'].includes(a1) ? w[2] : (c0 !== 'npm' ? a1 : null);
+    if (name && RELEASE_NAME.test(name)) return `배포·게시 스크립트 실행(${c0} ${a1 === 'run' ? 'run ' : ''}${name})`;
+  }
+  if (c0 === 'make' && w.slice(1).some(t => !t.startsWith('-') && !t.includes('=') && RELEASE_NAME.test(t))) return '배포·게시 대상 실행(make)';
+  if (c0 === 'vercel' && (w.includes('--prod') || w.includes('deploy') || w.includes('promote') || w.length === 1)) return '배포(vercel)';
+  if (['netlify', 'firebase', 'fly', 'flyctl', 'railway', 'wrangler', 'serverless', 'sls'].includes(c0) && w.some(t => /^(deploy|publish|release)$/.test(t))) return `배포(${c0})`;
+  if (c0 === 'heroku' && w.some(t => /^(container:(push|release)|releases:rollback|deploy)/.test(t))) return '배포(heroku)';
+  if (c0 === 'gcloud' && w.some(t => t === 'deploy')) return '배포(gcloud)';
+  if (c0 === 'cdk' && w.some(t => ['deploy', 'destroy'].includes(t))) return '배포(cdk)';
+  if (c0 === 'aws' && w[1] === 's3' && ((w[2] === 'sync' && w.some(t => t === '--delete')) || (w[2] === 'rm' && w.some(t => t === '--recursive')) || w[2] === 'rb')) return 'S3 삭제·덮어쓰기(aws s3)';
+  if (['docker', 'podman'].includes(c0) || c0 === 'docker-compose') {
+    const sub = c0 === 'docker-compose' ? ['compose', ...w.slice(1)] : w.slice(1);
+    if (sub[0] === 'compose' && sub.includes('down') && sub.some(t => t === '-v' || t === '--volumes')) return 'Docker 볼륨 삭제(compose down -v)';
+    if (sub[0] === 'volume' && ['rm', 'prune'].includes(sub[1])) return `Docker 볼륨 삭제(volume ${sub[1]})`;
+    if (sub[0] === 'system' && sub[1] === 'prune' && sub.includes('--volumes')) return 'Docker 볼륨 삭제(system prune --volumes)';
+  }
+  if (c0 === 'helm' && ['install', 'upgrade', 'uninstall', 'delete', 'rollback'].includes(w[1])) return `배포(helm ${w[1]})`;
+  if (['surge', 'gh-pages'].includes(c0)) return `배포(${c0})`;
+  if (c0 === 'terraform' && w.some(t => ['apply', 'destroy'].includes(t))) return '배포(terraform apply/destroy)';
+  if (c0 === 'kubectl' && w.some(t => ['apply', 'delete', 'replace', 'rollout'].includes(t))) return '배포(kubectl 변경)';
+  if (['docker', 'podman'].includes(c0) && (w.includes('push') || w.includes('--push'))) return `이미지 게시(${c0} push)`;
+  if (c0 === 'cargo' && a1 === 'publish') return '패키지 게시(cargo)';
+  if (c0 === 'twine' && a1 === 'upload') return '패키지 게시(twine)';
+  if (c0 === 'poetry' && a1 === 'publish') return '패키지 게시(poetry)';
+  if (c0 === 'gem' && a1 === 'push') return '패키지 게시(gem)';
+  if (c0 === 'changeset' && a1 === 'publish') return '패키지 게시(changeset)';
+  if (['semantic-release', 'np', 'standard-version', 'release-it', 'lerna'].includes(c0) && (c0 !== 'lerna' || ['publish', 'version'].includes(a1))) return `릴리스·게시(${c0})`;
   return null;
 }
 
@@ -574,8 +774,30 @@ export function murbaInvocations(cmd, depth = 0) {
 export function bashMentions(cmd, needle) { return String(cmd || '').includes(needle); }
 
 // ---- Script files written by an agent (best effort, literals only; computed strings are out of scope) ----
-export const SCRIPT_EXT_RE = /\.(m?js|cjs|ts|mts|cts|py|sh|bash)$/i;
+export const SCRIPT_EXT_RE = /\.(m?js|cjs|jsx|tsx?|mts|cts|py|sh|bash|zsh|ksh|rb|pl)$/i;
 export function deleteTargetReason(t, proj) { return badDeleteTarget(t, proj, { cwd: proj }); }
+const INLINE_KIND = { node: 'js', nodejs: 'js', deno: 'js', bun: 'js', python: 'py', python3: 'py', ruby: 'rb', perl: 'pl' };
+
+// What kind of script a file is: 'sh' | 'make' | 'pkg' | 'js' | 'py' | 'rb' | 'pl' | null
+export function scriptKind(rel, content) {
+  const b = String(rel || '').split('/').pop();
+  if (/\.(sh|bash|zsh|ksh)$/i.test(b)) return 'sh';
+  if (/^(GNUmakefile|[Mm]akefile)$|\.mk$/.test(b)) return 'make';
+  if (b === 'package.json') return 'pkg';
+  if (/\.(m?js|cjs|jsx|tsx?|mts|cts)$/i.test(b)) return 'js';
+  if (/\.py$/i.test(b)) return 'py';
+  if (/\.rb$/i.test(b) || b === 'Rakefile') return 'rb';
+  if (/\.pl$/i.test(b)) return 'pl';
+  const first = String(content || '').split('\n')[0];
+  if (!b.includes('.') && /^#!/.test(first)) {
+    if (/node|deno|bun/.test(first)) return 'js';
+    if (/python/.test(first)) return 'py';
+    if (/ruby/.test(first)) return 'rb';
+    if (/perl/.test(first)) return 'pl';
+    return 'sh';
+  }
+  return null;
+}
 
 // Read a JS/Python string literal at s[i] (quote char). Returns [value, endIndex] or null (template with ${…} → null).
 function readLiteral(s, i) {
@@ -602,14 +824,24 @@ function readLiteralArray(s, i) {
   }
 }
 
-const EXEC_CALL_RE = /\b(?:execSync|execFileSync|execFile|exec|spawnSync|spawn|fork|subprocess\.(?:run|call|check_call|check_output|Popen)|os\.system|os\.popen|Bun\.spawn(?:Sync)?|Deno\.Command)\s*\(\s*/g;
-const RM_CALL_RE = /\b(?:fs\.|fsp\.|promises\.)?(rmSync|rmdirSync|rm|rmdir)\s*\(\s*|\bshutil\.rmtree\s*\(\s*/g;
+const EXEC_CALL_RE = /\b(?:execSync|execFileSync|execFile|exec|spawnSync|spawn|fork|execa(?:Sync|Command(?:Sync)?|Node)?|subprocess\.(?:run|call|check_call|check_output|Popen)|os\.system|os\.popen|system|Kernel\.(?:system|exec)|Open3\.\w+|IO\.popen|Bun\.spawn(?:Sync)?|Deno\.Command)\s*\(\s*/g;
+// recursive-by-nature deleters (fs-extra, rimraf, del) and fs.rm/rmSync (recursive when {recursive:true})
+const RM_CALL_RE = /\b(?:fs\.|fsp\.|promises\.|fse\.)?(rmSync|rmdirSync|rm|rmdir|removeSync|remove|emptyDirSync|emptyDir|rimrafSync|rimraf|deleteSync|deleteAsync|shutil\.rmtree)\s*\(\s*/g;
+const ALWAYS_RECURSIVE = ['removeSync', 'remove', 'emptyDirSync', 'emptyDir', 'rimrafSync', 'rimraf', 'deleteSync', 'deleteAsync', 'shutil.rmtree'];
+const READ_CALL_RE = /\b(?:readFileSync|readFile|createReadStream|readdirSync|readdir|opendirSync|copyFileSync|copyFile|cpSync)\s*\(\s*(['"`])([^'"`]+)\1|\bopen\(\s*(['"])([^'"]+)\3\s*(?:\)|,\s*(['"])r)/g;
+const DB_CALL_RE = /\.(exec|execute|executescript|executemany|query|run|prepare|raw|\$executeRaw\w*|\$queryRaw\w*)\s*\(|sqlite3|better-sqlite3|psycopg|pymysql|mysql|\bpg\b|knex|sequelize|duckdb/;
 
-// → { commands: [shell command strings], deletes: [{target, recursive}], writes: [literal paths] }
-export function scanScript(content, rel) {
+// → { commands, deletes: [{target, recursive}], writes, reads, sql: bool }
+export function scanScript(content, rel, kind = scriptKind(rel, content)) {
   const src = String(content || '');
-  const res = { commands: [], deletes: [], writes: [] };
-  if (/\.(sh|bash)$/i.test(rel)) { res.commands.push(src); return res; }
+  const res = { commands: [], deletes: [], writes: [], reads: [], sql: false };
+  if (kind === 'sh') { res.commands.push(src); return res; }
+  if (kind === 'make') { for (const line of src.split('\n')) if (/^\t/.test(line)) res.commands.push(line.replace(/^\t[@+-]*/, '')); return res; }
+  if (kind === 'pkg') {
+    try { const j = JSON.parse(src); for (const v of Object.values((j && j.scripts) || {})) if (typeof v === 'string') res.commands.push(v); }
+    catch { let m; const re = /"[^"\n]+"\s*:\s*"((?:[^"\\\n]|\\.)*)"/g; while ((m = re.exec(src))) res.commands.push(m[1].replace(/\\(.)/g, '$1')); }
+    return res;
+  }
   let m;
   EXEC_CALL_RE.lastIndex = 0;
   while ((m = EXEC_CALL_RE.exec(src))) {
@@ -622,13 +854,31 @@ export function scanScript(content, rel) {
     if (after) { const arr = readLiteralArray(src, k + after[0].length); if (arr) cmd += ' ' + arr[0].join(' '); }
     res.commands.push(cmd);
   }
+  // zx: $`cmd` (no interpolation); ruby/perl backticks and %x(…)
+  const zx = /\$`([^`$]*)`/g; while ((m = zx.exec(src))) res.commands.push(m[1]);
+  if (kind === 'rb' || kind === 'pl') { const bt = /(?<!\$)`([^`]*)`|%x\(([^)]*)\)/g; while ((m = bt.exec(src))) res.commands.push(m[1] ?? m[2]); }
   RM_CALL_RE.lastIndex = 0;
   while ((m = RM_CALL_RE.exec(src))) {
     const lit = readLiteral(src, m.index + m[0].length); if (!lit) continue;
     const tail = src.slice(lit[1], lit[1] + 200);
-    const recursive = /rmtree/.test(m[0]) || /^\s*,\s*\{[^}]*recursive\s*:\s*true/.test(tail);
+    const recursive = ALWAYS_RECURSIVE.includes(m[1]) || /^\s*,\s*\{[^}]*recursive\s*:\s*true/.test(tail);
     res.deletes.push({ target: lit[0], recursive });
   }
   res.writes.push(...codeWrites(src));
+  READ_CALL_RE.lastIndex = 0;
+  while ((m = READ_CALL_RE.exec(src))) res.reads.push(m[2] ?? m[4]);
+  if (DB_CALL_RE.test(src)) {
+    const lits = /(['"`])((?:(?!\1)[^\\]|\\.)*?)\1/g;
+    while ((m = lits.exec(src))) if (DB_DROP_RE.test(m[2])) { res.sql = true; break; }
+  }
   return res;
+}
+
+// Irreversible rules applied to script content: literal commands (as Bash), recursive deletes, DROP/TRUNCATE via a DB driver.
+export function analyzeScriptContent(content, kind, proj, depth = 0) {
+  const sc = scanScript(content, '', kind);
+  for (const c of sc.commands) { const r = depth < 5 ? analyzeBash(c, proj, depth + 1) : null; if (r) return r; }
+  for (const d of sc.deletes) { const why = d.recursive ? badDeleteTarget(d.target, proj, { cwd: proj }) : null; if (why) return { deny: true, reason: why, rule: 'rm-root' }; }
+  if (sc.sql) return { deny: true, reason: 'DB 데이터 삭제(DROP/TRUNCATE) SQL 실행', rule: 'db-drop' };
+  return null;
 }

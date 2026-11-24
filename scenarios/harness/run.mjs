@@ -8,7 +8,6 @@ import { fileURLToPath } from 'node:url';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..', '..');
-const PLUGIN = path.join(REPO, 'plugins', 'murba-good-work');
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, arr) => (v.startsWith('--') ? a.concat([[v.slice(2), arr[i + 1] && !arr[i + 1].startsWith('--') ? arr[i + 1] : true]]) : a), []));
 const OUT = path.resolve(args.out || 'harness-out');
 const CONC = Number(args.concurrency || 6);
@@ -84,6 +83,13 @@ async function runOne(t) {
 }
 
 fs.mkdirSync(OUT, { recursive: true });
+// 실행 중 작업 트리가 바뀌어도 결과가 한 커밋을 가리키도록 플러그인을 고정 사본으로 쓴다
+const SHA = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim();
+const DIRTY = execFileSync('git', ['status', '--porcelain', '--', 'plugins/'], { cwd: REPO, encoding: 'utf8' }).trim();
+if (DIRTY && !args['allow-dirty']) { console.error('plugins/에 커밋 안 된 변경이 있음. 커밋 후 실행(또는 --allow-dirty)'); process.exit(1); }
+const PLUGIN = path.join(OUT, '_plugin');
+if (!fs.existsSync(PLUGIN)) fs.cpSync(path.join(REPO, 'plugins', 'murba-good-work'), PLUGIN, { recursive: true });
+fs.writeFileSync(path.join(OUT, '_plugin.sha'), SHA + (DIRTY ? ' (dirty)' : '') + '\n');
 console.log(`tasks=${selected.length} concurrency=${CONC} timeout=${TIMEOUT_MS / 60000}m model=${MODEL} out=${OUT}`);
 const queue = [...selected];
 await Promise.all(Array.from({ length: Math.min(CONC, queue.length) }, async () => { while (queue.length) await runOne(queue.shift()); }));

@@ -22,7 +22,8 @@
 | `evidence/run-<UTC>/` | evaluator(Bash 실행 결과) | `AC-001.png`, `AC-001.log` 등. 덮어쓰기 금지 |
 | `logs/hooks.jsonl` | hooks | `{ts, hook, event:fired\|blocked\|released\|exhausted\|skipped\|error, ...}` |
 | `report.md`, `report.html` | `murba report` | 보고서 |
-| `state.sha256` | `murba` CLI·hook(`updateState`)만 | state.json의 sha256. CLI 밖에서 state.json이 바뀌면 어긋남 → `LEDGER_TAMPERED` |
+| `state.sha256` | `murba` CLI·hook(`updateState`)만 | state.json의 sha256. CLI 밖에서 state.json이 바뀌면 어긋남 → `LEDGER_TAMPERED`. init이 state에 `ledger_hash:true`를 남기므로, 해시 파일이 지워져도 `LEDGER_TAMPERED`(다시 만들지 않음) |
+| `approve-token` | guard만 | 대화형 `murba approve`에 ask를 낼 때 `{"ts":"<ISO>"}` 기록. CLI approve가 10분 안의 토큰을 확인하고 지운다 |
 | `caller` | guard만 | PreToolUse마다 호출자 기록: `murba-good-work:<에이전트>` 또는 `main`. CLI가 읽어 서브에이전트의 상태 변경을 거부 |
 
 ## `murba` CLI (`P/bin/murba` → `P/scripts/murba-cli.mjs`, Bash에서 PATH로 실행)
@@ -31,7 +32,7 @@
 - **원장 검사**(status·report·init·help 제외): `state.sha256`과 state.json이 어긋나면 `LEDGER_TAMPERED`(종료 코드 2, 이벤트 1회). status·report는 실행하고 ❌로 표시. 변조된 원장에 hook이 쓰더라도 해시는 갱신하지 않는다
 | 명령 | 동작 |
 |---|---|
-| `murba init [--headless] [--auto-approve] [--force]` | `.murba/` 생성, state 초기화(phase=triage), `.gitignore`에 `.murba/` 추가. 사전 승인(`MURBA_HEADLESS=1` 또는 `--auto-approve`)은 이때만 기록. `--force` 재초기화는 승인·테스트 잠금을 지우고 user-direction 결정으로 기록. 대화형 원장을 headless·자동 승인으로 재초기화하면 거부(종료 코드 2) |
+| `murba init [--headless] [--auto-approve] [--force]` | `.murba/` 생성, state 초기화(phase=triage), `.gitignore`에 `.murba/` 추가. 사전 승인(`MURBA_HEADLESS=1` 또는 `--auto-approve`)은 이때만 기록. 재초기화로 사전 승인을 새로 켤 수 없다(이전 원장에 없었거나 원장 변조 시 종료 코드 2). `--force` 재초기화는 승인·테스트 잠금을 지우고 user-direction 결정으로 기록. 대화형 원장을 headless·자동 승인으로 재초기화하면 거부(종료 코드 2) |
 | `murba status [--json]` | phase, 다음 가능 단계, 남은 조건, AC 요약 |
 | `murba phase <next>` | 현재 phase의 requires 확인 → 전이표 확인 → 기록. `setup` 진입 시 `auto=true`. build·evaluate·fix·qa·browser 진입은 승인 + 테스트 잠금 필요. 승인 후 spec.md가 바뀌었으면 `SPEC_EDITED`(종료 코드 2). 고정 테스트가 바뀌었으면 모든 전이에서 `TESTS_CHANGED`(종료 코드 2) |
 | `murba phase <target> --skip "<사유>"` | 기본 순서(`chain`)상 앞의 단계로 건너뜀. 지나간 단계는 `state.skipped[단계]=사유`로 기록하고 requires 검사 안 함. `report` 너머로는 불가. 승인 없이 `approve`를 건너뛰는 것은 investigation이거나 목표가 `report`일 때만. 승인 후 단계 진입 조건은 생략으로도 못 넘는다. 보고서에 ⏸ 행 |
@@ -42,7 +43,7 @@
 | `murba ac hold <ID> --reason <r>` | 보류(보고서에 ❌). `--final VERIFIED` 판정이 오면 자동 해제(`unheld_by_final`) |
 | `murba phase fix --ac <ID>` (qa에서) | 최종 판정이 VERIFIED 아닌 AC를 다시 수정. current_ac=ID. 수정 상한이면 종료 코드 3 |
 | `murba fix-round <ID>` | fix_rounds+1, 3 초과 시 종료 코드 3 |
-| `murba approve` | spec_hash 고정, approved=true. headless는 init 때 사전 승인(`--auto-approve` 또는 `MURBA_HEADLESS=1`)이 기록된 경우만(승인 시점 환경변수는 보지 않음) |
+| `murba approve [--human]` | spec_hash 고정, approved=true. headless는 init 때 사전 승인(`--auto-approve` 또는 `MURBA_HEADLESS=1`)이 기록된 경우만(승인 시점 환경변수는 보지 않음). 대화형은 guard가 사람 확인(ask) 때 쓴 `approve-token`(10분)이 있어야 함, 없으면 `APPROVE_NEEDS_HUMAN`(종료 코드 2). `--human`은 hook이 한 번도 돈 적 없는 곳(`caller` 없음: 테스트·사람이 터미널에서 직접)에서만 토큰 대신 인정 |
 | `murba lock-tests <glob...>` | 테스트 파일 sha256을 test_hashes에 기록. setup·test-write 단계에서만 |
 | `murba lock-tests --amend <glob...> --reason "<r>"` | build·fix·evaluate에서, **이미 고정된** 테스트 자체의 결함을 test-writer가 고친 뒤 재고정. taste 결정 `TEST_AMENDED: <파일>` + 보고서 ⚠️ |
 | `murba check-tests` | 해시 비교, 바뀐 파일 있으면 종료 코드 2 + 목록 |

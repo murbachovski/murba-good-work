@@ -3,10 +3,10 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { PLUGIN_NAME, projectDir, readState, readStdin, appendEvent, appendDecision, logHook, murbaDir } from './lib/core.mjs';
-import { analyzeBash, bashWriteRels, bashPathArgs, canonRel, pathVariants, relIs, relUnder, hasGlob, walkSegments, findNamePatterns, findDeletes, findRoots, SCRIPT_EXT_RE, scanScript, deleteTargetReason, isTestPath, isSecretPath, matchAny, DEFAULT_IMPL_GLOBS, murbaInvocations } from './lib/patterns.mjs';
+import { analyzeBash, bashWriteRels, bashPathArgs, canonRel, pathVariants, relIs, relUnder, hasGlob, walkSegments, findNamePatterns, findDeletes, findRoots, scriptKind, scanScript, deleteTargetReason, isTestPath, isSecretPath, matchAny, DEFAULT_IMPL_GLOBS, murbaInvocations, RUNNER_SECTION_FILES } from './lib/patterns.mjs';
 
 // Ledger files: only the murba CLI (and this guard, for `caller`) changes them. Write/Edit and Bash writes are refused for everyone.
-const LEDGER = ['.murba/state.json', '.murba/events.jsonl', '.murba/decisions.tsv', '.murba/caller', '.murba/state.sha256'];
+const LEDGER = ['.murba/state.json', '.murba/events.jsonl', '.murba/decisions.tsv', '.murba/caller', '.murba/state.sha256', '.murba/approve-token'];
 const isStateFile = rel => LEDGER.some(c => relIs(rel, c)) || relUnder(rel, '.murba/logs');
 const isMurbaRoot = rel => relIs(rel, '.murba') || rel === '.murba/*' || rel === '.murba/**';
 // murba subcommands a subagent may run (read-only). evaluator may also create an evidence run folder.
@@ -18,6 +18,13 @@ function decide(decision, reason) {
 }
 const ask = reason => decide('ask', reason);
 const deny = reason => decide('deny', reason);
+
+// Human-approval token for the CLI: written when the guard asks a human to confirm `murba approve` (CLI accepts it for 10 minutes)
+function writeApproveToken(proj) {
+  const p = path.join(murbaDir(proj), 'approve-token');
+  const tmp = `${p}.${process.pid}.tmp`;
+  try { fs.writeFileSync(tmp, JSON.stringify({ ts: Date.now() })); fs.renameSync(tmp, p); } catch { try { fs.unlinkSync(tmp); } catch {} }
+}
 
 function agentName(input) {
   const t = input.agent_type || '';
@@ -47,8 +54,38 @@ function toolRels(proj, tool, ti) {
 const WRITE_TOOLS = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
 const READ_TOOLS = ['Read', 'Grep', 'Glob'];
 
-// builder may read its own handoff/report files under .murba, nothing else there
-const builderMurbaOk = rel => !hasGlob(rel) && /^\.murba\/(reports|handoff)\/[^/]/.test(rel);
+// builder must not reach .murba/hidden (spec §174): the folder itself, an ancestor of it (`.murba`), or a glob/brace that can match inside it
+const HIDDEN_PROBE = '.murba/hidden/x';
+const reachesHidden = rel => !!rel && (relUnder(rel, '.murba/hidden') || (hasGlob(rel) ? ['.murba', '.murba/hidden', HIDDEN_PROBE].some(c => relIs(rel, c)) : '.murba/hidden'.startsWith(rel + '/')));
+
+// Recursive content search over the project root that does not respect .gitignore (so it reads .murba/hidden)
+const GREPS = ['grep', 'egrep', 'fgrep'];
+function rootSearch(s, proj) {
+  const w = s.words, c0 = s.c0;
+  const atRoot = targets => !targets.length || targets.some(t => { const r = canonRel(proj, t, s.cwd); return r === '' || r.startsWith('..') || relIs(r, '.murba') || relUnder(r, '.murba'); });
+  const opts = w.slice(1).filter(t => t.startsWith('-'));
+  const args = w.slice(1).filter(t => !t.startsWith('-'));
+  const excludesMurba = w.some(t => /^--(exclude-dir|ignore-dir)=?/.test(t) && /\.murb|\.\*|\{.*\.murb/.test(t)) || w.some((t, k) => ['--exclude-dir', '--ignore-dir', '-g', '--glob'].includes(t) && /murb|^!\.\*|^!\.?\*\*\/\./.test(w[k + 1] || ''));
+  if (excludesMurba) return false;
+  if (GREPS.includes(c0) && opts.some(o => /^-[a-zA-Z]*[rR]/.test(o) || o === '--recursive' || o === '--dereference-recursive' || /^--directories=recurse/.test(o))) {
+    const hasE = w.some(t => t === '-e' || t === '-f' || /^--regexp/.test(t));
+    return atRoot(hasE ? args : args.slice(1));
+  }
+  if (c0 === 'rg' && opts.some(o => /^-u+$/.test(o) || /^--no-ignore/.test(o) || o === '--unrestricted')) return atRoot(args.slice(1));
+  if (c0 === 'ag' && opts.some(o => /^-[a-zA-Z]*[uU]/.test(o) || ['--unrestricted', '--skip-vcs-ignores', '--all-types'].includes(o))) return atRoot(args.slice(1));
+  if (c0 === 'ack') return atRoot(args.slice(1));
+  return false;
+}
+const FORMATTER_WRITES = (c0, w) =>
+  (c0 === 'prettier' && w.some(t => ['--write', '-w'].includes(t))) ||
+  (c0 === 'eslint' && w.some(t => t === '--fix')) || (c0 === 'stylelint' && w.includes('--fix')) ||
+  (c0 === 'black' && !w.some(t => ['--check', '--diff'].includes(t))) ||
+  (c0 === 'ruff' && (w.includes('--fix') || (w[1] === 'format' && !w.some(t => ['--check', '--diff'].includes(t))))) ||
+  (['gofmt', 'goimports'].includes(c0) && w.includes('-w')) ||
+  (c0 === 'rustfmt' && !w.includes('--check')) || (c0 === 'cargo' && w[1] === 'fmt' && !w.includes('--check')) ||
+  (c0 === 'isort' && !w.some(t => ['--check', '--check-only', '--diff', '-c'].includes(t))) || (c0 === 'autopep8' && w.some(t => ['-i', '--in-place'].includes(t)));
+const READ_CMDS = ['cat', 'head', 'tail', 'less', 'more', 'bat', 'nl', 'sed', 'awk', 'grep', 'egrep', 'fgrep', 'rg', 'ag', 'strings', 'xxd', 'od', 'cp', 'diff', 'cut', 'sort', 'wc', 'tac', 'vim', 'view'];
+const isImpl = (rel, implGlobs) => !!rel && !hasGlob(rel) && !isTestPath(rel) && (matchAny(rel, implGlobs) || matchAny(rel + '/_', implGlobs));
 
 function checkAgentRules(name, tool, ti, proj, st) {
   const self = name;
@@ -63,16 +100,16 @@ function checkAgentRules(name, tool, ti, proj, st) {
     for (const rel of rels) {
       if (relUnder(rel, '.murba') && !allowedMurbaWrite(rel)) return `서브에이전트(${self})는 .murba/ 중 자기 보고 경로(${ownReports})에만 쓸 수 있음`;
       if (self === 'builder' && (isTestPath(rel) || /^\.claude\/settings/.test(rel))) return `builder는 테스트·러너 설정·보호 파일을 수정할 수 없음(${rel}). 실패한 AC는 구현으로 해결`;
-      if (self === 'builder' && /(^|\/)package\.json$/.test(rel) && changesTestScript(proj, rel, tool, ti)) return 'builder는 package.json의 test 스크립트를 바꿀 수 없음';
+      if (self === 'builder' && /(^|\/)package\.json$/.test(rel) && changesTestScript(proj, rel, tool, ti)) return 'builder는 package.json의 test 스크립트·테스트 설정(jest 등)을 바꿀 수 없음';
+      if (self === 'builder' && RUNNER_SECTION_FILES.test(rel) && changesRunnerConfig(proj, rel, tool, ti)) return `builder는 ${rel}의 테스트 설정 부분을 바꿀 수 없음`;
       if (['evaluator', 'pr-reviewer', 'triage', 'spec-reviewer'].includes(self) && !rel.startsWith(ownReports) && !(self === 'evaluator' && rel.startsWith('.murba/evidence/'))) return `${self}는 코드를 수정하지 않음. 보고는 ${ownReports}에`;
     }
   }
   if (isRead && self === 'builder') {
-    // .murba itself, anything under it except handoff/reports, or a glob/brace that can reach it (root search is fine: .murba/ is gitignored)
-    for (const rel of rels) if (relUnder(rel, '.murba') && !builderMurbaOk(rel)) return relUnder(rel, '.murba/hidden') || relIs(rel, '.murba') ? 'builder는 숨긴 검사에 접근할 수 없음' : 'builder는 숨긴 검사에 접근할 수 없음(.murba 검색)';
+    for (const rel of rels) if (reachesHidden(rel)) return 'builder는 숨긴 검사(.murba/hidden)에 접근할 수 없음';
   }
   if (isRead && self === 'test-writer') {
-    for (const rel of rels) if (rel && !hasGlob(rel) && !isTestPath(rel) && matchAny(rel, implGlobs)) return `test-writer는 구현 코드를 읽지 않고 AC만 보고 테스트를 씀(${rel})`;
+    for (const rel of rels) if (isImpl(rel, implGlobs)) return `test-writer는 구현 코드를 읽지 않고 AC만 보고 테스트를 씀(${rel})`;
   }
   if (tool === 'Bash') {
     const cmd = String(ti.command || '');
@@ -81,21 +118,28 @@ function checkAgentRules(name, tool, ti, proj, st) {
       const ok = MURBA_READONLY.includes(sc) || (sc === 'budget' && !args.includes('--subagent')) || (sc === 'evidence-run' && self === 'evaluator');
       if (!ok) return `서브에이전트(${self})는 murba 상태 변경 명령(${sc})을 쓸 수 없음. 결과는 응답으로 보고`;
     }
+    const { segs } = walkSegments(cmd, proj);
     if (self === 'builder') {
-      if (cmd.includes('.murba/hidden')) return 'builder는 숨긴 검사에 접근할 수 없음';
-      for (const rel of bashPathArgs(cmd, proj)) {
-        if (relIs(rel, '.murba') || relUnder(rel, '.murba/hidden')) return 'builder는 숨긴 검사에 접근할 수 없음(.murba 탐색)';
-      }
-      const { segs } = walkSegments(cmd, proj);
+      if (/\.murba\/hidden/i.test(cmd)) return 'builder는 숨긴 검사에 접근할 수 없음';
+      for (const rel of bashPathArgs(cmd, proj)) if (reachesHidden(rel)) return 'builder는 숨긴 검사에 접근할 수 없음(.murba 탐색)';
       for (const s of segs) {
-        if (['npm', 'pnpm', 'yarn'].includes(s.c0) && s.words.includes('pkg') && s.words.some(t => ['set', 'delete'].includes(t))) {
-          if (s.words.some(t => /^scripts\.test/.test(t.split('=')[0]))) return 'builder는 test 스크립트를 바꿀 수 없음';
-        }
+        if (rootSearch(s, proj)) return 'builder는 .gitignore를 무시하고 프로젝트 전체를 검색할 수 없음(숨긴 검사 포함). Grep 도구(.gitignore 준수)나 src 등 경로를 지정하세요';
+        if (s.c0 === 'find' && findNamePatterns(s.words).some(p => /hidden|\.murb/i.test(p))) return 'builder는 숨긴 검사를 찾을 수 없음';
+        const keyIsTest = t => /^scripts(\.|\[)['"]?test/.test(String(t).split('=')[0]) || /^(jest|mocha|ava)(\.|\[|$)/.test(String(t).split('=')[0]);
+        if (['npm', 'pnpm', 'yarn'].includes(s.c0) && s.words.includes('pkg') && s.words.some(t => ['set', 'delete'].includes(t)) && s.words.some(keyIsTest)) return 'builder는 test 스크립트를 바꿀 수 없음';
+        if (s.c0 === 'npm' && s.words[1] === 'set-script' && /^test/.test(s.words[2] || '')) return 'builder는 test 스크립트를 바꿀 수 없음';
       }
+    }
+    if (self === 'test-writer') {
+      for (const s of segs) if (READ_CMDS.includes(s.c0)) for (const t of s.words.slice(1)) if (!t.startsWith('-') && isImpl(canonRel(proj, t, s.cwd), implGlobs)) return `test-writer는 구현 코드를 읽지 않고 AC만 보고 테스트를 씀(${t})`;
+    }
+    if (['evaluator', 'pr-reviewer'].includes(self)) {
+      for (const s of segs) if (FORMATTER_WRITES(s.c0, s.words)) return `${self}는 코드를 수정하지 않음(${s.c0}로 파일 고치기 금지)`;
     }
     for (const rel of bashWriteRels(cmd, proj)) {
       if (relUnder(rel, '.murba') && !allowedMurbaWrite(rel)) return `서브에이전트(${self})는 .murba/ 중 자기 보고 경로에만 쓸 수 있음(${rel})`;
       if (self === 'builder' && isTestPath(rel)) return `builder는 테스트·러너 설정을 수정할 수 없음(${rel})`;
+      if (self === 'builder' && (/(^|\/)package\.json$/.test(rel) || RUNNER_SECTION_FILES.test(rel))) return `builder는 ${rel}을 Bash로 고칠 수 없음(Edit 도구로)`;
       if (['evaluator', 'pr-reviewer'].includes(self) && !rel.startsWith('.murba/') && !rel.startsWith('..') && !path.isAbsolute(rel)) return `${self}는 코드를 수정하지 않음(${rel})`;
     }
   }
@@ -133,24 +177,42 @@ function main() {
       if (isSecretPath(rel)) block(`비밀 파일 쓰기(${rel})`, 'secret-write', 'irreversible');
       if (isStateFile(rel)) block(`${rel}은 murba CLI로만 변경`, 'state-file', null);
     }
-    // script files: literal commands / recursive deletes / ledger writes inside the new content
+    // script files (incl. Makefile, package.json scripts, shebang files): literal commands go through the full Bash checks
     const bodies = tool === 'Write' ? [ti.content] : tool === 'MultiEdit' ? (ti.edits || []).map(e => e && e.new_string) : [ti.new_string];
+    const norm = c => String(c).trim().replace(/\s+/g, ' ');
     for (const rel of toolRels(proj, tool, ti)) {
-      if (!SCRIPT_EXT_RE.test(rel)) continue;
-      for (const body of bodies) {
+      if (!rel || hasGlob(rel) || tool === 'NotebookEdit') continue;
+      const cur = readText(proj, rel);
+      const after = tool === 'Write' ? String(ti.content || '') : applyEdits(cur, tool, ti);
+      const kind = scriptKind(rel, after ?? bodies.join('\n'));
+      if (!kind) continue;
+      // commands already in the file before this edit are not re-checked (only new or changed ones)
+      const oldCmds = new Set(cur ? scanScript(cur, rel, scriptKind(rel, cur) || kind).commands.map(norm) : []);
+      const scanBodies = kind === 'pkg' && after != null ? [after] : bodies;
+      for (const body of scanBodies) {
         if (!body) continue;
-        const sc = scanScript(body, rel);
+        const sc = scanScript(body, rel, kind);
         for (const c of sc.commands) {
+          if (oldCmds.has(norm(c))) continue;
           const r = analyzeBash(c, proj);
           if (r) block(`스크립트(${rel}) 안 명령: ${r.reason}`, r.rule, 'irreversible');
           for (const w of bashWriteRels(c, proj)) if (isStateFile(w) || isMurbaRoot(w)) block(`스크립트(${rel}) 안 명령이 ${w}을 바꿈 — murba CLI로만 변경`, 'state-file', null);
+          const inv = murbaInvocations(c);
+          if (inv.some(a => a[0] === 'approve')) block(`스크립트(${rel}) 안 murba approve — approve는 사람이 직접 실행`, 'approve-human', null);
+          if (inv.some(a => a[0] === 'init') && fs.existsSync(path.join(murbaDir(proj), 'state.json'))) block(`스크립트(${rel}) 안 murba init — 진행 중인 실행의 재초기화는 사람이 직접`, 'reinit-human', null);
+          if (name) { const ar = checkAgentRules(name, 'Bash', { command: c }, proj, st); if (ar) block(`스크립트(${rel}) 안 명령: ${ar}`, `agent:${name}`, null); }
         }
         for (const d of sc.deletes) {
           const why = d.recursive ? deleteTargetReason(d.target, proj) : null;
           if (why) block(`스크립트(${rel}) 안: ${why}`, 'rm-root', 'irreversible');
           if (pathVariants(proj, d.target).some(isMurbaRoot)) block(`스크립트(${rel})가 .murba 폴더를 지움`, 'murba-root', null);
         }
-        for (const w of sc.writes) for (const v of pathVariants(proj, w)) if (isStateFile(v)) block(`스크립트(${rel})가 ${v}을 씀 — murba CLI로만 변경`, 'state-file', null);
+        if (sc.sql) block(`스크립트(${rel}) 안: DB 데이터 삭제(DROP/TRUNCATE) SQL 실행`, 'db-drop', 'irreversible');
+        for (const w of sc.writes) for (const v of pathVariants(proj, w)) {
+          if (isStateFile(v)) block(`스크립트(${rel})가 ${v}을 씀 — murba CLI로만 변경`, 'state-file', null);
+          if (name === 'builder' && isTestPath(v)) block(`builder 스크립트(${rel})가 테스트 파일(${v})을 씀`, 'agent:builder', null);
+        }
+        if (name === 'builder') for (const rd of sc.reads) for (const v of pathVariants(proj, rd)) if (reachesHidden(v)) block(`builder 스크립트(${rel})가 숨긴 검사(${v})를 읽음`, 'agent:builder', null);
       }
     }
   }
@@ -185,6 +247,7 @@ function main() {
       // interactive approval needs a human click
       if (st.mode !== 'headless' && inv.some(a => a[0] === 'approve' || a[0] === '<stdin>')) {
         logHook(proj, 'guard', 'ask', { tool, rule: 'approve-human' });
+        writeApproveToken(proj);
         ask('[murba guard] 기획서 승인은 사람이 확인합니다. 기획서·AC 요약을 보고 승인하려면 허용하세요.');
       }
     }
@@ -206,12 +269,12 @@ try { main(); } catch (e) {
 // Does this package.json edit change scripts.test / test:*? Applies the edit to the current file and compares.
 // If the edit can't be applied (no file, old_string missing, result not JSON), fall back to a text heuristic.
 function changesTestScript(proj, rel, tool, ti) {
-  const testKeys = j => { const sc = (j && j.scripts) || {}; return JSON.stringify(Object.keys(sc).filter(k => k === 'test' || k.startsWith('test:')).sort().map(k => [k, sc[k]])); };
+  const testKeys = j => { const sc = (j && j.scripts) || {}; return JSON.stringify([Object.keys(sc).filter(k => k === 'test' || k.startsWith('test:')).sort().map(k => [k, sc[k]]), j && j.jest, j && j.mocha, j && j.ava]); };
   let curText = null; try { curText = fs.readFileSync(path.join(proj, rel), 'utf8'); } catch { curText = null; }
   let cur = null; try { cur = curText == null ? null : JSON.parse(curText); } catch { cur = null; }
   if (tool === 'Write') { try { return testKeys(JSON.parse(ti.content || '')) !== testKeys(cur); } catch { return true; } }
   const edits = tool === 'MultiEdit' ? (ti.edits || []) : [ti];
-  const heuristic = () => edits.some(e => [e.old_string, e.new_string].some(x => /"test(:[^"]*)?"\s*:/.test(String(x || ''))) || /(--test\b|\bjest\b|\bvitest\b|\bmocha\b|\bpytest\b|\bplaywright\b|\bava\b|\btap\b)/.test(String(e.old_string || '')));
+  const heuristic = () => edits.some(e => [e.old_string, e.new_string].some(x => /"(test(:[^"]*)?|jest|mocha|ava)"\s*:/.test(String(x || ''))) || /(--test\b|\bjest\b|\bvitest\b|\bmocha\b|\bpytest\b|\bplaywright\b|\bava\b|\btap\b)/.test(String(e.old_string || '')));
   if (curText == null || cur == null) return heuristic();
   let text = curText;
   for (const e of edits) {
@@ -220,4 +283,41 @@ function changesTestScript(proj, rel, tool, ti) {
     text = e.replace_all ? text.split(o).join(n) : text.replace(o, () => n);
   }
   try { return testKeys(JSON.parse(text)) !== testKeys(cur); } catch { return heuristic(); }
+}
+
+function readText(proj, rel) { try { return fs.readFileSync(path.join(proj, rel), 'utf8'); } catch { return null; } }
+// The file text after an Edit/MultiEdit, or null when it can't be applied
+function applyEdits(curText, tool, ti) {
+  if (curText == null) return null;
+  const edits = tool === 'MultiEdit' ? (ti.edits || []) : [ti];
+  let text = curText;
+  for (const e of edits) {
+    const o = String((e && e.old_string) ?? ''); const n = String((e && e.new_string) ?? '');
+    if (!o || !text.includes(o)) return null;
+    text = e.replace_all ? text.split(o).join(n) : text.replace(o, () => n);
+  }
+  return text;
+}
+// The test-runner part of a shared config: [tool.pytest*]/[tool.coverage*] (pyproject), [tool:pytest]/[pytest]/[testenv*] (setup.cfg, tox.ini), `test: {…}` (vite.config)
+function tomlSections(text, pick) {
+  const out = []; let on = false;
+  for (const line of text.split('\n')) { const h = /^\s*\[\[?([^\]]+)\]\]?\s*$/.exec(line); if (h) on = pick(h[1].trim()); if (on) out.push(line.trim()); }
+  return out.join('\n');
+}
+function testSection(rel, text) {
+  if (/pyproject\.toml$/.test(rel)) return tomlSections(text, h => /^tool\.(pytest|coverage)/.test(h));
+  if (/(setup\.cfg|tox\.ini)$/.test(rel)) return tomlSections(text, h => /^(tool:pytest|pytest|coverage:|testenv)/.test(h));
+  const m = /\btest\s*:\s*\{/.exec(text); if (!m) return '';
+  let d = 0, k = m.index + m[0].length - 1;
+  for (; k < text.length; k++) { if (text[k] === '{') d++; else if (text[k] === '}' && --d === 0) break; }
+  return text.slice(m.index, k + 1);
+}
+function changesRunnerConfig(proj, rel, tool, ti) {
+  const cur = readText(proj, rel);
+  const after = tool === 'Write' ? String(ti.content || '') : applyEdits(cur, tool, ti);
+  if (after == null) {
+    const edits = tool === 'MultiEdit' ? (ti.edits || []) : [ti];
+    return edits.some(e => /pytest|addopts|testpaths|\btest\s*:|vitest|coverage/.test(String((e && e.old_string) || '') + String((e && e.new_string) || '')));
+  }
+  return testSection(rel, cur ?? '') !== testSection(rel, after);
 }

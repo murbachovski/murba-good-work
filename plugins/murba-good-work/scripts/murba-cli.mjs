@@ -28,7 +28,7 @@ function flag(name) { return argv.includes(name); }
 function positional() {
   const res = [];
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i].startsWith('--')) { if (argv[i + 1] !== undefined && !argv[i + 1].startsWith('--') && !['--json', '--final', '--headless', '--auto-approve', '--force', '--subagent', '--amend'].includes(argv[i])) i++; continue; }
+    if (argv[i].startsWith('--')) { if (argv[i + 1] !== undefined && !argv[i + 1].startsWith('--') && !['--json', '--final', '--headless', '--auto-approve', '--force', '--subagent', '--amend', '--human'].includes(argv[i])) i++; continue; }
     res.push(argv[i]);
   }
   return res;
@@ -96,11 +96,14 @@ const cmds = {
     const prev = readState(proj);
     if (prev && !flag('--force')) fail(1, '이미 초기화됨(.murba/state.json). 다시 하려면 --force');
     if (prev && prev.mode !== 'headless' && (flag('--headless') || flag('--auto-approve') || isHeadless())) fail(2, '재초기화 거부: 대화형 실행을 headless·자동 승인으로 바꿀 수 없다(사람 승인 우회)');
+    const wantAuto = flag('--auto-approve') || process.env.MURBA_HEADLESS === '1';
+    // 사전 승인은 처음 init에서만 정한다. 이전 원장에 사전 승인이 없었으면(또는 원장이 변조됐으면) 재초기화로 켤 수 없다
+    if (prev && wantAuto && (!prev.auto_approve || ledgerTampered(proj))) fail(2, '재초기화 거부: 사전 승인 없던 실행을 재초기화로 자동 승인으로 바꿀 수 없다(사람 승인 우회)');
     for (const d of ['handoff', 'reports', 'hidden', 'evidence', 'logs']) fs.mkdirSync(path.join(md, d), { recursive: true });
     const headless = flag('--headless') || isHeadless();
     const st = {
       schema: 1, plugin_version: pluginVersion(), phase: 'triage', auto: false, approved: false,
-      mode: headless ? 'headless' : 'interactive', auto_approve: flag('--auto-approve') || process.env.MURBA_HEADLESS === '1',
+      mode: headless ? 'headless' : 'interactive', auto_approve: wantAuto, ledger_hash: true,
       started_at: nowIso(), ac: {}, ac_order: [], current_ac: null, final_sha: null, spec_hash: null,
       test_hashes: {}, counters: { stop: {}, stop_total: 0, subagents: 0, fix_total: 0 },
       budget: { max_minutes: Number(opt('--max-minutes', 120)), max_subagents: Number(opt('--max-subagents', 40)), max_fix_rounds_total: 15 },
@@ -298,9 +301,22 @@ const cmds = {
     if (st0.phase !== 'approve') fail(2, `approve 단계가 아님(현재 ${st0.phase})`);
     if (st0.mode === 'headless' && !st0.auto_approve) fail(2, 'headless 모드 자동 승인은 init 때 사전 승인(MURBA_HEADLESS=1 또는 --auto-approve)이 있었을 때만. 승인 대기로 보고서를 쓰고 끝낸다');
     if (!st0.ac_order.length) fail(2, 'AC 없음 — murba ac sync 먼저');
+    let tokenP = null;
+    if (st0.mode !== 'headless') {
+      // 대화형 승인 = 사람 확인. guard가 approve에 ask를 낼 때 .murba/approve-token을 쓰고, 여기서 10분 안의 토큰을 소비한다.
+      // hook이 한 번도 돈 적 없는 곳(.murba/caller 없음: 테스트·사람이 직접 실행)에서만 --human으로 대신한다
+      tokenP = path.join(md, 'approve-token');
+      const human = flag('--human') && !fs.existsSync(path.join(md, 'caller'));
+      let ts = NaN;
+      if (fs.existsSync(tokenP)) { const raw = fs.readFileSync(tokenP, 'utf8').trim(); try { const v = JSON.parse(raw).ts; ts = typeof v === 'number' ? v : Date.parse(v); } catch { ts = Date.parse(raw); } }
+      const fresh = Number.isFinite(ts) && Date.now() - ts >= -60_000 && Date.now() - ts <= 10 * 60_000;
+      if (!fresh && !human) { appendEvent(proj, 'approve_refused', { reason: fs.existsSync(tokenP) ? 'stale_token' : 'no_token' }); fail(2, 'APPROVE_NEEDS_HUMAN: 대화형 승인은 사람이 확인해야 함(hook ask). `murba approve`를 직접 실행해 확인 창에서 승인받는다'); }
+      if (!fresh) tokenP = null;
+    }
     const specP = path.join(md, 'spec.md');
     const hash = sha256File(specP);
     updateState(proj, st => { st.approved = true; st.spec_hash = hash; st.approved_at = nowIso(); st.approved_by = st.mode === 'headless' ? 'auto-approve(headless)' : 'user'; });
+    if (tokenP) fs.rmSync(tokenP, { force: true });
     appendEvent(proj, 'approved', { spec_hash: hash, by: st0.mode === 'headless' ? 'auto' : 'user' });
     out(`승인 기록: spec sha256=${hash.slice(0, 12)}…, AC ${st0.ac_order.length}개 고정`);
   },
