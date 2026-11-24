@@ -9,8 +9,13 @@ import { fileURLToPath } from 'node:url';
 export const P = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const REAL = path.join(P, 'tests', 'fixtures', 'real');
 
+// temp projects made by this test process are removed when it exits
+const made = [];
+process.on('exit', () => { for (const d of made) { try { fs.rmSync(d, { recursive: true, force: true }); } catch {} } });
+
 export function tmpProj({ murba = true } = {}) {
   const d = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'murba-test-')));
+  made.push(d);
   spawnSync('git', ['init', '-q'], { cwd: d });
   if (murba) murbaCli(d, ['init']);
   return d;
