@@ -18,7 +18,7 @@ description: "Use when the user wants a feature, app, bug fix or change built en
 7. 매 단계 시작에 `murba budget` (종료 코드 3 → report로 가서 멈춤 보고).
 8. 서브에이전트 kickoff 첫 줄은 항상: `Read ${CLAUDE_PLUGIN_ROOT}/assets/worker.md first.` kickoff는 20줄 이하, 핵심은 처음과 끝에.
 9. **Bash는 단순하게**(권한 프롬프트·거부로 멈추지 않게): 프로젝트 루트에서 실행, `cd x &&` 금지, 셸 변수·`$(...)`·for 루프·서브셸 금지, 호출 1번에 단순 명령 1개. 값(SHA 등)은 앞 명령 출력에서 그대로 복사해 쓴다. 명령 앞 환경변수 지정·파일 쓰기용 heredoc(`cat > f <<EOF`)·`/tmp` 금지(`murba handoff <<'EOF'`는 허용). 여러 단계 로직은 Write 도구로 `.murba/reports/<이름>/`에 스크립트 파일을 쓰고 `node <파일>`로 실행. 테스트는 `node --test <glob>`, `npx playwright test`를 직접. 종료 코드는 Bash 도구 결과에 나온다.
-10. **서브에이전트·명령은 전경(foreground)으로만**: Agent 호출에 항상 `run_in_background: false`를 넣는다. Bash `run_in_background`·Monitor·"알림 대기"로 턴을 끝내지 않는다(headless `-p`는 턴이 끝나면 백그라운드 작업을 기다리다 강제 종료한다). 서버가 필요한 검사는 Playwright `webServer` 설정이나 한 번에 끝나는 스크립트(서버 시작 → 측정 → 종료)로 한다.
+10. **서브에이전트·명령은 전경(foreground)으로만**: Agent 호출에 `run_in_background`를 **넣지 않는다**(문자열 `"false"`를 넣으면 오히려 백그라운드로 돈 사례가 있다). 그래도 백그라운드로 시작되면 완료 알림을 기다려 이어 가고, 질문으로 턴을 끝내지 않는다. Bash `run_in_background`·Monitor로 턴을 끝내지 않는다(headless `-p`는 턴이 끝나면 백그라운드 작업을 기다리다 강제 종료한다). 서버가 필요한 검사는 Playwright `webServer` 설정이나 한 번에 끝나는 스크립트(서버 시작 → 측정 → 종료)로 한다.
 
 ## 시작
 **`.murba/`는 플러그인 상태 폴더이지 소스 변경이 아니다**(gitignore됨). 읽기 전용 조사 과제라도 **항상 `murba init`** 한다.
@@ -33,9 +33,9 @@ git checkout -b feat/<짧은-slug>          # git 저장소가 아니면 git ini
 | phase | 할 일 | 담당 | 떠나기 조건 |
 |---|---|---|---|
 | triage | `murba-good-work:triage`에 요청 전달 → 응답의 JSON을 `.murba/run-plan.json`으로 저장 | triage | run-plan.json |
-| grill | **grill 스킬** 실행 → `.murba/spec.md` 작성(AC 줄 형식은 아래) → `murba ac sync` | 나 | spec.md |
-| spec-review | `murba-good-work:spec-reviewer`에 spec 경로만 전달 → 응답을 `.murba/reports/spec-reviewer/review.md`로 저장 | spec-reviewer | review.md |
-| revise | 증명된 지적만 반영, 나머지는 보류 기록. AC 사이 진짜 선후관계는 `[after:AC-xxx]`로 표시. `.murba/ac-test-map.md` 작성. `murba ac sync` | 나 | spec.md, ac-test-map.md |
+| grill | 사용자 요청 원문과 사전 답변을 그대로 `.murba/brief.md`에 저장 → **grill 스킬** 실행 → `.murba/spec.md` 작성(AC 줄 형식은 아래) → `murba ac sync` | 나 | spec.md |
+| spec-review | `murba-good-work:spec-reviewer`에 spec·brief 경로만 전달(요구 → AC 대응 검사 포함) → 응답을 `.murba/reports/spec-reviewer/review.md`로 저장 | spec-reviewer | review.md |
+| revise | 증명된 지적만 반영, 나머지는 보류 기록. **요구 → AC 차단 지적은 반드시 AC로 반영**(요구를 약하게 바꾸지 않는다). AC 사이 진짜 선후관계는 `[after:AC-xxx]`로 표시. `.murba/ac-test-map.md` 작성. `murba ac sync` | 나 | spec.md, ac-test-map.md |
 | approve | 대화형: 기획서+대응표 요약을 보여주고 AskUserQuestion으로 **1회 승인** + 그동안 쌓인 결정 큐 질문. 승인 → `murba approve`를 **직접 Bash로**(스크립트·래퍼 안 금지). hook이 사람 확인 창을 띄우고, 확인 없이 실행되면 `APPROVE_NEEDS_HUMAN`. headless: `murba approve`. 거부되면(사전 승인 없음) 사용자에게 묻지 말고 `murba report`로 보고서를 쓰고 '승인 대기'로 끝낸다 | 사용자 | @approved |
 | setup | [references/setup.md](references/setup.md) | 나 | handoff/setup.md, init.sh |
 | test-write | [references/test-write.md](references/test-write.md) | test-writer | handoff, @test_hashes |
@@ -45,6 +45,9 @@ git checkout -b feat/<짧은-slug>          # git 저장소가 아니면 git ini
 
 AC 줄 형식(spec.md): `- AC-001 [browser] [after:AC-000] WHEN <조건> THE SYSTEM SHALL <동작>` — `[browser]`는 화면 확인이 필요한 AC에만. `[after:AC-xxx]`는 그 AC가 정말 다른 AC 구현을 전제할 때만(승인 전 grill/revise에서 붙인다). `murba ac next`가 이 순서를 지킨다.
 
+11. **작은 구현 작업도 파이프라인을 탄다.** 기획서는 짧게(AC 1~3개) 쓰되 승인·테스트 선작성·판정은 생략하지 않는다. `--skip`은 조사 작업과, 실행하지 않은 위험 요청(`murba decide irreversible` 기록 후)에만 쓴다. CLI가 그 밖의 생략을 거부한다.
+12. **사용자가 요청한 산출물은 `.murba/` 밖에 둔다**(스크립트·보고서·출력 파일). `.murba/`는 원장 전용이고 git에서 제외된다. 조사 결과는 사용자가 정한 경로, 없으면 프로젝트 루트 `INVESTIGATION.md`에 쓰고 `.murba/reports/`에는 그 경로만 적는다.
+
 ## 작업 유형별 진행 (run-plan.json의 task_type)
 | task_type | 진행 |
 |---|---|
@@ -53,7 +56,7 @@ AC 줄 형식(spec.md): `- AC-001 [browser] [after:AC-000] WHEN <조건> THE SYS
 | refactor | 기존 테스트가 AC 기준선. test-write에서 기존 테스트를 `murba lock-tests`로 잠그고, 동작 보존(기존 테스트 전부 통과)이 판정 기준 |
 | perf | 변경 전 기준 측정을 `.murba/evidence/baseline-*.log`로 저장한 뒤 진행. AC는 측정 비율(예: 5배 이상 빠름)이며 **같은 입력 5회 이상 측정의 중앙값**으로 판정(최대값·1회 측정 금지, 측정 노이즈로 실패하지 않게). 변경 전·후를 같은 스크립트로 번갈아 측정 |
 | prototype | 기획서는 가볍게, 그래도 AC와 브라우저 증거는 필수 |
-| investigation | triage → grill(질문 목록·조사 범위. spec.md에 **AC 줄을 쓰지 않는다** — 조사 질문은 `Q-1` 형식, `murba ac sync` 안 함) → 조사 결과를 `.murba/reports/investigation.md`에 작성(근거 `file:line`·실행 결과) → `murba phase report --skip "조사 과제: 구현 없음"` → `murba report`. 소스는 고치지 않는다 |
+| investigation | triage → grill(질문 목록·조사 범위. spec.md에 **AC 줄을 쓰지 않는다** — 조사 질문은 `Q-1` 형식, `murba ac sync` 안 함) → 조사 결과를 사용자가 정한 경로(없으면 프로젝트 루트 `INVESTIGATION.md`)에 작성(근거 `file:line`·실행 결과), `.murba/reports/investigation.md`에는 그 경로를 기록 → `murba phase report --skip "조사 과제: 구현 없음"` → `murba report`. 소스는 고치지 않는다 |
 | 위험 요청(삭제·DB 초기화·push 등) | **실행하지 않는다.** `murba decide irreversible "<요청>" --why "<이유>"`, 안전한 부분은 모두 하고 report로 끝 |
 
 ## 서브에이전트 kickoff 틀
@@ -96,6 +99,8 @@ Read ${CLAUDE_PLUGIN_ROOT}/assets/worker.md first.
 | "한 번에 여러 AC 구현이 빠름" | AC 1개씩. 판정·롤백 단위가 무너진다 |
 | "멈추고 보고할까" | 미완료 단계가 있으면 다음 행동을 한다. 막히면 decide + hold 후 다음 AC |
 | "읽기 전용 조사라 init 안 함" | `.murba/`는 소스가 아니다. init 후 investigation 흐름 |
+| "작은 수정이라 기획·테스트는 생략" | 생략은 CLI가 거부한다. AC 1개짜리 짧은 기획서로 진행 |
+| "결과 스크립트는 .murba에 두면 됨" | `.murba/`는 git 제외 원장. 사용자 산출물은 프로젝트 안에 |
 | "headless지만 이건 물어봐야" | 질문으로 끝내지 않는다. 추천안 decide 또는 report --skip |
 | "for 루프 한 번이면 끝" | 루프·변수는 권한 거부로 멈춘다. 스크립트 파일 + `node` |
 

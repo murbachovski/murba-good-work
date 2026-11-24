@@ -100,6 +100,7 @@ const cmds = {
     // 사전 승인은 처음 init에서만 정한다. 이전 원장에 사전 승인이 없었으면(또는 원장이 변조됐으면) 재초기화로 켤 수 없다
     if (prev && wantAuto && (!prev.auto_approve || ledgerTampered(proj))) fail(2, '재초기화 거부: 사전 승인 없던 실행을 재초기화로 자동 승인으로 바꿀 수 없다(사람 승인 우회)');
     for (const d of ['handoff', 'reports', 'hidden', 'evidence', 'logs']) fs.mkdirSync(path.join(md, d), { recursive: true });
+    for (const a of ['triage', 'spec-reviewer', 'test-writer', 'builder', 'evaluator', 'pr-reviewer', 'test-write', 'qa']) fs.mkdirSync(path.join(md, 'reports', a), { recursive: true });
     const headless = flag('--headless') || isHeadless();
     const st = {
       schema: 1, plugin_version: pluginVersion(), phase: 'triage', auto: false, approved: false,
@@ -149,7 +150,9 @@ const cmds = {
         const path_ = CHAIN.slice(ci, ti);
         if (path_.includes('approve') && !st.approved) {
           const plan = core.readJsonFile(path.join(md, 'run-plan.json'), {});
-          if (plan.task_type !== 'investigation' && next !== 'report') fail(2, '생략 거부: 승인 없이 approve를 건너뛰는 것은 조사(investigation) 작업이거나 report로 가서 끝낼 때만');
+          const risky = core.readDecisions(proj).some(d => d.class === 'irreversible');
+          if (plan.task_type !== 'investigation' && !risky) fail(2, '생략 거부: 구현이 필요한 작업은 기획·승인·테스트 단계를 건너뛸 수 없다. 작은 작업도 AC 1개로 진행한다(approve 생략은 조사 작업, 또는 비가역 요청을 실행하지 않고 murba decide irreversible로 기록한 경우만)');
+          if (next !== 'report' && plan.task_type !== 'investigation') fail(2, '생략 거부: 위험 요청의 생략은 report로만 갈 수 있다');
         }
         gateEntry(st, next);
         commonChecks(st, cur);

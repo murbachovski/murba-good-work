@@ -6,6 +6,16 @@
 - **플러그인 버전**(`plugins/murba-good-work/.claude-plugin/plugin.json`의 `version`): SemVer, 첫 동작 버전 `0.1.0`
 
 ## [Unreleased]
+
+## [플러그인 0.1.1] - 2026-11-24
+### 바뀜 ([ADR 0004](docs/decisions/0004-no-pipeline-skip-for-implementation.md))
+- 구현 작업은 파이프라인을 건너뛸 수 없음: approve를 지나는 생략은 조사 과제나 위험 요청(결정 큐에 irreversible)만
+- 승인 전(triage~approve) 메인 세션의 `.murba/` 밖 쓰기 거부(조사 과제 제외, run-plan 작성 전은 미적용 — 미리 고친 코드는 test-write의 RED 확인에서 드러남)
+- 작은 작업도 AC 1~3개 최소 기획서로 진행, 사용자 산출물은 `.murba/` 밖에
+- spec-reviewer: brief·사전 답변의 명시 요구 → AC 대응 검사(빠지면 막는 지적)
+- guard 비가역 목록: `git reset --hard`, `git clean -f[d|x]`
+- `murba init`이 보고서 폴더를 미리 만듦, 서브에이전트 호출에 `run_in_background`를 넘기지 않음
+### 이전 Unreleased 항목
 ### 바뀜
 - guard: 프로젝트가 `/tmp` 아래일 때(Linux) 임시 폴더 삭제 오탐 수정, 임시 폴더 안 링크가 가리키는 실제 경로(예: 홈)로 재귀 삭제 판정
 - 플러그인 아이콘, GitHub Actions CI(Node 18·20·22 + validate), 테스트 190개(리뷰어 재현 입력 회귀 포함)

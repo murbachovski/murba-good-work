@@ -12,6 +12,14 @@ const isMurbaRoot = rel => relIs(rel, '.murba') || rel === '.murba/*' || rel ===
 // murba subcommands a subagent may run (read-only). evaluator may also create an evidence run folder.
 const MURBA_READONLY = ['status', 'check-tests', 'help', '--help', '-h'];
 
+// phases before the human approves the spec; the main session must not edit project sources then
+const PRE_APPROVAL = ['triage', 'grill', 'spec-review', 'revise', 'approve'];
+function runPlanType(proj) {
+  const p = path.join(murbaDir(proj), 'run-plan.json');
+  if (!fs.existsSync(p)) return null; // no plan yet (triage start): not applied; CLI skip rule + red-test check in test-write cover early edits
+  try { return JSON.parse(fs.readFileSync(p, 'utf8')).task_type || 'unknown'; } catch { return 'unknown'; } // unreadable plan: rule stays on
+}
+
 function decide(decision, reason) {
   process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: decision, permissionDecisionReason: reason } }));
   process.exit(0);
@@ -250,6 +258,21 @@ function main() {
         writeApproveToken(proj);
         ask('[murba guard] 기획서 승인은 사람이 확인합니다. 기획서·AC 요약을 보고 승인하려면 허용하세요.');
       }
+    }
+  }
+  // 2b) before approval the main session does not change project sources (spec and AC are approved first).
+  //     Investigation runs are exempt (they write a report file). Subagents follow their own rules below.
+  const planType = runPlanType(proj); // null when run-plan.json is missing → rule not applied
+  if (!name && PRE_APPROVAL.includes(st.phase) && planType && planType !== 'investigation') {
+    const reason = '승인 전에는 소스를 고치지 않는다. 기획서(.murba/spec.md)와 AC를 먼저 승인받는다';
+    const outsideMurba = rel => !!rel && !path.isAbsolute(rel) && !/^\.\.(\/|$)/.test(rel) && !relIs(rel, '.murba') && !relUnder(rel, '.murba');
+    if (WRITE_TOOLS.includes(tool)) for (const rel of toolRels(proj, tool, ti)) if (outsideMurba(rel)) block(`${reason}(${rel})`, 'pre-approval-edit', null);
+    if (tool === 'Bash') {
+      const cmd = String(ti.command || '');
+      // git arguments are branch names or refs here (e.g. `git checkout -b feat/x`), not file writes
+      const gitArgs = new Set();
+      for (const sg of walkSegments(cmd, proj).segs) if (sg.c0 === 'git') for (const a of sg.words.slice(1)) if (!a.startsWith('-')) for (const v of pathVariants(proj, a, sg.cwd)) gitArgs.add(v);
+      for (const rel of bashWriteRels(cmd, proj)) if (outsideMurba(rel) && !gitArgs.has(rel)) block(`${reason}(Bash 쓰기: ${rel})`, 'pre-approval-edit', null);
     }
   }
   // 3) agent rules

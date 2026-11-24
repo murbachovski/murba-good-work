@@ -573,6 +573,15 @@ export function analyzeBash(cmd, proj = null, depth = 0) {
       const sub = si > 0 ? w[si] : null;
       if (sub === 'push') return deny('git push는 v0.1에서 비가역 작업(결정 큐로)', 'git-push');
       if (sub === 'subtree' && w[si + 1] === 'push') return deny('git subtree push', 'git-push');
+      // discarding uncommitted work: reset --hard, clean -f with -d/-x/-X (dry runs allowed)
+      if (sub === 'reset' && w.slice(si + 1).includes('--hard')) return deny('git reset --hard(커밋 안 된 변경을 되돌릴 수 없게 지움)', 'git-discard');
+      if (sub === 'clean') {
+        const opts = w.slice(si + 1).filter(t => t.startsWith('-'));
+        const has = re => opts.some(t => (t.startsWith('--') ? false : re.test(t.slice(1))));
+        const dry = opts.some(t => t === '--dry-run' || (!t.startsWith('--') && /n/.test(t.slice(1))));
+        const force = has(/f/) || opts.includes('--force');
+        if (!dry && force && (has(/[dxX]/))) return deny('git clean -f(d/x)(추적 안 된 파일을 되돌릴 수 없게 지움)', 'git-discard');
+      }
       if (sub === 'tag') {
         const rest = w.slice(si + 1);
         const listMode = rest.some(t => TAG_LIST_OPTS.includes(t.split('=')[0]) || /^-n\d*$/.test(t));

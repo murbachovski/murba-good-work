@@ -203,7 +203,9 @@ test('review#2: --skip cannot bypass approval or test lock', () => {
   assert.equal(readState(p).phase, 'triage');
   write(p, '.murba/run-plan.json', JSON.stringify({ task_type: 'feature' }));
   assert.equal(m(p, ['phase', 'qa', '--skip', 'x']).code, 2);
-  // 위험 요청은 report로 가서 끝낼 수 있다
+  // 구현 작업은 report로도 건너뛸 수 없다(예비 비교 결함). 위험 요청은 irreversible 결정 기록 후에만
+  assert.equal(m(p, ['phase', 'report', '--skip', '위험 요청']).code, 2);
+  assert.equal(m(p, ['decide', 'irreversible', 'DB 삭제 요청', '--why', '확인 필요']).code, 0);
   assert.equal(m(p, ['phase', 'report', '--skip', '위험 요청']).code, 0);
   // 승인 없이 approve 뒤 단계에 있으면 ac sync 거부
   const q = tmpProj();
@@ -377,4 +379,29 @@ test('r3 bug2: re-init cannot turn on auto-approve when the previous run had non
   const h2 = tmpProj({ murba: false });
   m(h2, ['init', '--headless', '--auto-approve']);
   assert.equal(m(h2, ['init', '--force', '--headless', '--auto-approve']).code, 0);
+});
+
+test('v0.1.1: implementation tasks cannot skip the pipeline (pilot defect); investigation and recorded risky requests can', () => {
+  for (const tt of ['bug-fix', 'feature', 'refactor', 'perf']) {
+    const p = tmpProj();
+    write(p, '.murba/run-plan.json', JSON.stringify({ task_type: tt }));
+    const r = m(p, ['phase', 'report', '--skip', '소규모']);
+    assert.equal(r.code, 2, tt + ' should be refused');
+    assert.match(r.err, /건너뛸 수 없다/);
+    assert.equal(readState(p).phase, 'triage');
+  }
+  const inv = tmpProj();
+  write(inv, '.murba/run-plan.json', JSON.stringify({ task_type: 'investigation' }));
+  assert.equal(m(inv, ['phase', 'report', '--skip', '조사']).code, 0);
+  const risky = tmpProj();
+  write(risky, '.murba/run-plan.json', JSON.stringify({ task_type: 'bug-fix' }));
+  m(risky, ['decide', 'irreversible', 'DROP 요청', '--why', '확인 필요']);
+  assert.equal(m(risky, ['phase', 'build', '--skip', 'x']).code, 2, 'risky skip only to report');
+  assert.equal(m(risky, ['phase', 'report', '--skip', '위험 요청']).code, 0);
+});
+
+test('v0.1.1: init creates per-agent report folders', () => {
+  const p = tmpProj();
+  for (const a of ['triage', 'spec-reviewer', 'test-writer', 'builder', 'evaluator', 'pr-reviewer'])
+    assert.ok(fs.statSync(path.join(p, '.murba', 'reports', a)).isDirectory(), a);
 });
