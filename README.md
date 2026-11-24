@@ -12,7 +12,7 @@
 /plugin marketplace add murbachovski/murba-good-work
 /plugin install murba-good-work@murba-good-work
 ```
-요구 사항: Claude Code 2.1.295 이상, Node.js 18 이상, git. 화면 검증을 쓰려면 Playwright(`npx playwright install chromium`).
+요구 사항: Claude Code 2.1.295 이상(시험한 버전 2.1.316), Node.js 18 이상, git. 화면 검증을 쓰려면 Playwright(`npx playwright install chromium`).
 
 ## 사용
 대상 프로젝트(git 저장소)에서:
