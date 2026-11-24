@@ -12,7 +12,12 @@
 - 스킬: run(오케스트레이터), grill(선택형 질문, 막지 않음), resume
 - 에이전트: triage, spec-reviewer, test-writer, builder, evaluator, pr-reviewer
 - 보고서 `.murba/report.md` + `.html`(결정적 스크립트)
-- 테스트 129개(실제 hook 입력 캡처 포함), 시나리오 과제 100개 + 무인 실행기(`scenarios/`)
+- 테스트 169개(실제 hook 입력 캡처 포함), 시나리오 과제 100개 + 무인 실행기(`scenarios/`)
+### 알려진 문제
+- 사용자 답변의 명시 요구가 AC로 옮겨지지 않으면 플러그인 자기 판정은 통과한다(t067 감사 2회). v0.1.1에서 spec-review에 요구 → AC 대응 검사 추가 예정
+- guard는 실수 방지망. 의도적 난독화는 범위 밖([ADR 0003](docs/decisions/0003-guard-threat-model.md))
+- `evals/`(claude plugin eval 스위트) 미작성
+
 ### 시험
 - 과제 100개를 sonnet으로 무인 실행(총 143회, $361.40. 태그 커밋 b148187 회귀 세트 11/11). 첫 시도 92개 성공, 수정 후 재실행 포함 100개 성공. 시험으로 바꾼 설계는 [ADR 0002](docs/decisions/0002-scenario-test-changes.md)
 

@@ -260,7 +260,7 @@ murba_good_work_plugin/
     ├── scripts/{router,guard,stop-gate}.{sh,mjs}, report-html.mjs
     ├── assets/{worker.md,state-machine.json,run-plan.schema.json}
     ├── tests/ (hook 픽스처·실제 실행)
-    └── evals/
+    └── evals/            # v0.1.0 미작성(시나리오 실행기 scenarios/harness로 대신)
 대상 프로젝트/.murba/  (gitignore)
     run-plan.json state.json progress.md decisions.tsv handoff/ evidence/ logs/ graph/ report.md
 ```
