@@ -78,16 +78,6 @@ test('v0.1.2: files already changed at init are a baseline — unchanged they pa
   assert.equal(d.code, 2); assert.match(d.err, /src\/a\.js/); assert.doesNotMatch(d.err, /new\.js/);
 });
 
-test('v0.1.2: init --force keeps the first baseline (cannot launder edits made during the run)', () => {
-  const p = seeded();
-  assert.equal(m(p, ['init']).code, 0);
-  write(p, 'src/id.js', 'export const id = 99;\n');
-  assert.equal(m(p, ['init', '--force']).code, 0);
-  assert.deepEqual(readState(p).base_dirty, {});
-  write(p, '.murba/run-plan.json', JSON.stringify({ task_type: 'investigation' }));
-  const r = m(p, ['phase', 'report', '--skip', '조사']);
-  assert.equal(r.code, 2); assert.match(r.err, /src\/id\.js/);
-});
 
 // ---- PR #12 review round 1 ----
 const SPEC1 = '# spec\n- AC-001 WHEN id() THE SYSTEM SHALL return 1\n';
@@ -167,16 +157,6 @@ test('v0.1.2 r1: dependency folders are not source; reverting the user\'s init-t
   assert.equal(r.code, 2); assert.match(r.err, /src\/id\.js/); assert.match(r.err, /src\/draft\.js/);
 });
 
-test('v0.1.2 r1: commit during the run then init --force keeps the original base commit', () => {
-  const p = seeded(); m(p, ['init']);
-  const base = readState(p).base_sha;
-  write(p, 'src/id.js', 'export const id = 7;\n'); git(p, 'commit', '-qam', 'agent change');
-  assert.equal(m(p, ['init', '--force']).code, 0);
-  assert.equal(readState(p).base_sha, base);
-  write(p, '.murba/run-plan.json', JSON.stringify({ task_type: 'investigation' }));
-  const r = m(p, ['phase', 'report', '--skip', '조사']);
-  assert.equal(r.code, 2); assert.match(r.err, /src\/id\.js/);
-});
 
 test('v0.1.2 r1: no-commit repo records the real reason; ripgrep (if installed) does not list .murba/hidden', (t) => {
   const p = tmpProj();
@@ -242,13 +222,6 @@ test('v0.1.2 r2: risky run reworked through build after a report-only skip can f
   assert.equal(d.code, 0, d.err);
 });
 
-test('v0.1.2 r2: re-init of a v0.1.1 ledger (no base_dirty) does not adopt run-time edits as baseline', () => {
-  const p = seeded(); m(p, ['init']);
-  setState(p, s => { delete s.base_dirty; });
-  write(p, 'src/id.js', 'export const id = 5;\n');
-  assert.equal(m(p, ['init', '--force']).code, 0);
-  assert.deepEqual(readState(p).base_dirty, {});
-});
 
 test('v0.1.2 r2: many untracked non-source files (git output over 1 MiB) do not trip the gate', () => {
   const p = seeded(); m(p, ['init']);
@@ -256,4 +229,40 @@ test('v0.1.2 r2: many untracked non-source files (git output over 1 MiB) do not 
   for (let i = 0; i < 400; i++) { const d = path.join(p, 'data', `batch-with-a-long-enough-name-${i}`); fs.mkdirSync(d, { recursive: true }); for (let j = 0; j < 100; j++) fs.writeFileSync(path.join(d, `row-${j}.csv`), ''); }
   const r = m(p, ['phase', 'report', '--skip', '조사']);
   assert.equal(r.code, 0, r.err);
+});
+
+// ---- PR #12 review round 3 ----
+test('v0.1.2 r3: init --force starts a new run with a fresh baseline (second run, greenfield first commit)', () => {
+  const p = seeded(); m(p, ['init']);
+  write(p, '.murba/run-plan.json', JSON.stringify({ task_type: 'investigation' }));
+  assert.equal(m(p, ['phase', 'report', '--skip', '조사']).code, 0);
+  assert.equal(toDone(p).code, 0);
+  write(p, 'src/id.js', 'export const id = 2;\n'); git(p, 'commit', '-qam', 'earlier finished work');
+  write(p, 'src/wip.js', 'user wip\n');
+  assert.equal(m(p, ['init', '--force']).code, 0);
+  const st = readState(p);
+  assert.equal(st.base_sha, git(p, 'rev-parse', 'HEAD').stdout.trim(), 'new run: base is the current HEAD');
+  assert.deepEqual(Object.keys(st.base_dirty), ['src/wip.js']);
+  write(p, '.murba/run-plan.json', JSON.stringify({ task_type: 'investigation' }));
+  assert.equal(m(p, ['phase', 'report', '--skip', '조사']).code, 0, 'earlier work and init-time wip are not this run\'s changes');
+  // greenfield: init before the first commit, then re-init turns the gate on
+  const g = tmpProj();
+  assert.equal(readState(g).base_sha, null);
+  write(g, 'src/a.js', 'a\n'); git(g, 'add', '-A'); git(g, 'commit', '-qm', 'first');
+  assert.equal(m(g, ['init', '--force']).code, 0);
+  assert.ok(readState(g).base_sha);
+  write(g, '.murba/run-plan.json', JSON.stringify({ task_type: 'investigation' }));
+  write(g, 'src/a.js', 'b\n');
+  assert.equal(m(g, ['phase', 'report', '--skip', '조사']).code, 2);
+});
+
+test('v0.1.2 r3: new files in tracked folders named build/out/target are source; wholly new dependency folders are not', () => {
+  const p = seeded({ 'src/build/compile.js': 'a\n', 'lib/out/keep.js': 'k\n', 'test/t.test.js': '// seed\n' }); m(p, ['init']);
+  write(p, '.murba/run-plan.json', JSON.stringify({ task_type: 'investigation' }));
+  write(p, 'src/build/helper.js', 'h\n'); write(p, 'lib/out/new.js', 'n\n'); write(p, 'src/newmod/x.js', 'x\n');
+  write(p, 'node_modules/a/index.js', 'x'); write(p, 'dist/bundle.js', 'x'); write(p, 'pkg2/node_modules/b/index.js', 'x');
+  const r = m(p, ['phase', 'report', '--skip', '조사']);
+  assert.equal(r.code, 2);
+  for (const f of ['src/build/helper.js', 'lib/out/new.js', 'src/newmod/x.js']) assert.match(r.err, new RegExp(f.replace(/[./]/g, '\\$&')));
+  for (const f of ['node_modules', 'dist/bundle', 'pkg2/node_modules']) assert.doesNotMatch(r.err, new RegExp(f.replace(/[./]/g, '\\$&')));
 });

@@ -73,9 +73,19 @@ const CODE_EXT = /\.(m?[jt]sx?|cjs|py|go|rb|rs|java|kt|kts|scala|php|html?|css|s
 // 경로는 프로젝트 폴더 기준(--relative: 모노레포 하위 폴더), 비 ASCII 이름은 그대로(-z는 따옴표·8진수 이스케이프를 하지 않음), 이름 바꾸기는 삭제+추가로(--no-renames)
 const gitOut = a => execFileSync('git', a, { cwd: proj, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 512 * 1024 * 1024 });
 const gitList = a => gitOut(a).split('\0').filter(Boolean);
-// 추적 안 된 파일만 의존성 폴더를 뺀다(git이 아예 나열하지 않게 pathspec으로). 추적 중인 파일은 경로 이름과 무관하게 소스다
+// 추적 안 된 파일: 통째로 추적 안 된 폴더(--directory로 접힘) 중 이름이 의존성 폴더인 것만 뺀다(git이 그 안을 나열하지 않음).
+// 추적 중인 파일이 있는 폴더 안의 새 파일은 폴더 이름과 무관하게 소스다
 const ARTIFACT_PATHSPEC = ARTIFACT_NAMES.map(n => `:(exclude,glob)**/${n}/**`);
-const changedSince = rev => [...gitList(['diff', '--name-only', '--relative', '--no-renames', '-z', rev]), ...gitList(['ls-files', '--others', '--exclude-standard', '-z', '--', '.', ...ARTIFACT_PATHSPEC])];
+function untrackedFiles() {
+  const out = [];
+  for (const e of gitList(['ls-files', '--others', '--exclude-standard', '--directory', '-z'])) {
+    if (!e.endsWith('/')) { out.push(e); continue; }
+    if (ARTIFACT_NAMES.includes(path.basename(e.slice(0, -1)))) continue;
+    out.push(...gitList(['ls-files', '--others', '--exclude-standard', '-z', '--', e, ...ARTIFACT_PATHSPEC]));
+  }
+  return out;
+}
+const changedSince = rev => [...gitList(['diff', '--name-only', '--relative', '--no-renames', '-z', rev]), ...untrackedFiles()];
 const fileHash = f => { try { return sha256File(path.join(proj, f)); } catch { return null; } };
 const gateFile = (f, globs) => !f.startsWith('.murba/') && f !== '.gitignore' && !isTestPath(f) && !CONFIG_RE.test(f) && (matchAny(f, globs) || CODE_EXT.test(f));
 // init 때 이미 바뀌어 있던 구현 파일(추적 파일의 변경·삭제, 추적 안 된 파일)과 그 내용 해시(삭제면 null). 사용자가 하던 작업을 게이트가 오탐하지 않게 한다
@@ -168,9 +178,9 @@ const cmds = {
       test_hashes: {}, counters: { stop: {}, stop_total: 0, subagents: 0, fix_total: 0 },
       budget: { max_minutes: Number(opt('--max-minutes', 120)), max_subagents: Number(opt('--max-subagents', 40)), max_fix_rounds_total: 15 },
       impl_globs: ['src/**', 'app/**', 'lib/**', 'server/**', 'public/**'],
-      // 재초기화는 처음 init의 기준선을 유지한다(재초기화로 그 사이 바꾼 구현 파일을 기준선에 넣지 못하게)
-      base_sha: prev && 'base_sha' in prev ? prev.base_sha : (() => { try { return gitOut(['rev-parse', 'HEAD']).trim() || null; } catch { return null; } })(),
-      base_dirty: prev ? (prev.base_dirty || {}) : dirtyBaseline(DEFAULT_IMPL_GLOBS),
+      // 기준선은 init 시점의 HEAD와 작업 중 변경. 재초기화(--force)는 새 실행이라 다시 잡는다(guard가 사람 확인을 요구하고 결정 큐에 남는다)
+      base_sha: (() => { try { return gitOut(['rev-parse', 'HEAD']).trim() || null; } catch { return null; } })(),
+      base_dirty: dirtyBaseline(DEFAULT_IMPL_GLOBS),
     };
     writeState(proj, st, { fresh: true });
     if (prev) {

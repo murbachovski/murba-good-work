@@ -45,7 +45,7 @@ git checkout -b feat/<짧은-slug>          # git 저장소가 아니면 git ini
 
 AC 줄 형식(spec.md): `- AC-001 [browser] [after:AC-000] WHEN <조건> THE SYSTEM SHALL <동작>` — `[browser]`는 화면 확인이 필요한 AC에만. `[after:AC-xxx]`는 그 AC가 정말 다른 AC 구현을 전제할 때만(승인 전 grill/revise에서 붙인다). `murba ac next`가 이 순서를 지킨다.
 
-11. **작은 구현 작업도 파이프라인을 탄다.** 기획서는 짧게(AC 1~3개) 쓰되 승인·테스트 선작성·판정은 생략하지 않는다. `--skip`은 조사 작업과 위험 요청(triage가 run-plan에 `risky: true`로 표시, grill로 넘어갈 때 고정)에만 쓴다. CLI가 그 밖의 생략을 거부한다. 승인·테스트 잠금 전에 구현 파일을 고치면 `murba approve`/`lock-tests`가 `SOURCE_CHANGED_BEFORE_TESTS`로 거부한다. 생략한 실행(조사·위험 보고)이 구현 파일을 바꾸면 `--skip`·`murba phase done`이 `SOURCE_CHANGED_IN_SKIPPED_RUN`으로 거부한다(재현 스크립트는 프로젝트 밖에).
+11. **작은 구현 작업도 파이프라인을 탄다.** 기획서는 짧게(AC 1~3개) 쓰되 승인·테스트 선작성·판정은 생략하지 않는다. `--skip`은 조사 작업과 위험 요청(triage가 run-plan에 `risky: true`로 표시, grill로 넘어갈 때 고정)에만 쓴다. CLI가 그 밖의 생략을 거부한다. 승인·테스트 잠금 전에 구현 파일을 고치면 `murba approve`/`lock-tests`가 `SOURCE_CHANGED_BEFORE_TESTS`로 거부한다. 생략한 실행(조사·위험 보고)이 구현 파일을 바꾸면 `--skip`·`murba phase done`이 `SOURCE_CHANGED_IN_SKIPPED_RUN`으로 거부한다(재현 스크립트는 프로젝트 밖에). `SOURCE_GATE_ERROR`(git 실패)는 `git status`로 원인을 확인하고, 못 고치면 `murba decide user-direction`으로 남기고 보고서를 쓴다.
 12. **사용자가 요청한 산출물은 `.murba/` 밖에 둔다**(스크립트·보고서·출력 파일). `.murba/`는 원장 전용이고 git에서 제외된다. 조사 결과는 사용자가 정한 경로, 없으면 프로젝트 루트 `INVESTIGATION.md`에 쓰고 `.murba/reports/`에는 그 경로만 적는다.
 
 ## 작업 유형별 진행 (run-plan.json의 task_type)
