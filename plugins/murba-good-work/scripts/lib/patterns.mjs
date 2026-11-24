@@ -717,6 +717,25 @@ function publishDeploy(c0, w) {
   return null;
 }
 
+// Files `sed -i` edits: GNU `sed -i 's/a/b/' f`, BSD `sed -i '' 's/a/b/' f` / `sed -i .bak …` (the suffix word is not the script),
+// `-e`/`-f` scripts (then every operand is a file), combined flags (`-ne`), `--`
+export function sedFiles(w) {
+  const files = []; let script = false, opts = true;
+  for (let i = 1; i < w.length; i++) {
+    const t = w[i];
+    if (opts && t === '--') { opts = false; continue; }
+    if (opts && t.startsWith('-') && t.length > 1) {
+      if (t === '-i' || t === '-I') { const n = w[i + 1]; if (n === '' || /^\.[\w.~-]*$/.test(n ?? '')) i++; continue; }
+      if (/^-[a-zA-Z]*[ef]$/.test(t) || t === '--expression' || t === '--file') { script = true; i++; continue; }
+      if (/^-[a-zA-Z]*[ef]./.test(t) && !/^-i/.test(t) || /^--(expression|file)=/.test(t)) script = true;
+      continue;
+    }
+    if (!script) { script = true; continue; }
+    files.push(t);
+  }
+  return files;
+}
+
 // Paths one segment writes to (best effort): redirects, tee, sed -i, cp/mv dest, rm targets, touch, dd of=, sponge, inline code.
 export function segWriteTargets(text, w, heredocBodies = []) {
   const out = [...redirectTargets(text)];
@@ -724,7 +743,7 @@ export function segWriteTargets(text, w, heredocBodies = []) {
   const c0 = base(w[0]);
   const args = w.slice(1).filter(t => !t.startsWith('-'));
   if (c0 === 'tee' || c0 === 'sponge') out.push(...args);
-  if (c0 === 'sed' && w.some(t => /^-i/.test(t) || t === '--in-place')) out.push(...args.slice(1));
+  if (c0 === 'sed' && w.some(t => /^-i/.test(t) || /^--in-place/.test(t))) out.push(...sedFiles(w));
   if (c0 === 'perl' && w.some(t => /^-[a-z]*i/.test(t))) out.push(...args.slice(1));
   if (['cp', 'mv', 'install', 'ln', 'rsync'].includes(c0) && args.length >= 2) out.push(args[args.length - 1]);
   if (['mv', 'rsync'].includes(c0) && args.length >= 2) out.push(...args.slice(0, -1)); // moving a file away also changes it

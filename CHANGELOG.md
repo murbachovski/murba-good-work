@@ -7,6 +7,12 @@
 
 ## [Unreleased]
 
+## [플러그인 0.1.5] - 2026-11-25
+### 바뀜
+- guard: `sed -i`가 고치는 파일을 제대로 가려냄. BSD `sed -i '' '<스크립트>' <파일>`·`sed -i .bak …`의 접미어와 스크립트를 파일로 보지 않음, `-e`·`-f`로 스크립트를 주면 나머지는 모두 파일, `--` 처리(0.1.4 알려진 문제: test-write 단계 메인 세션의 정상 편집 오탐)
+### 검증
+- 테스트 250개 중 249 통과, 1 건너뜀(로컬 rg). 해석 규칙 4개를 하나씩 되돌린 뮤테이션 모두 새 테스트 실패
+
 ## [플러그인 0.1.4] - 2026-11-24
 ### 바뀜 ([ADR 0007](docs/decisions/0007-enforce-independent-roles.md))
 - guard: 메인 세션은 `.murba/reports/{test-writer,builder,evaluator,pr-reviewer}/`와 `.murba/hidden/`에 쓸 수 없음(서브에이전트 독립 작업의 증거), test-write 단계에서 테스트 파일도 쓸 수 없음. `sh -c`·`eval` 안, 스크립트 파일 안 리터럴 경로, 와일드카드 경로에도 적용
