@@ -85,12 +85,27 @@ function untrackedFiles() {
   }
   return out;
 }
-const changedSince = rev => [...gitList(['diff', '--name-only', '--relative', '--no-renames', '-z', rev]), ...untrackedFiles()];
+// git이 '안 바뀐 것'으로 보게 표시한 추적 파일(assume-unchanged `h`, skip-worktree `S`) 중 작업 트리 내용이 인덱스와 다른 것
+function flaggedChanged() {
+  const out = [];
+  for (const e of gitList(['ls-files', '-v', '-z'])) {
+    if (!/^[hS] /.test(e)) continue;
+    const f = e.slice(2);
+    if (!fs.existsSync(path.join(proj, f))) continue; // sparse checkout: 파일 없음
+    const blob = gitOut(['ls-files', '-s', '--', f]).split(/\s+/)[1];
+    if (blob && gitOut(['hash-object', '--', f]).trim() !== blob) out.push(f);
+  }
+  return out;
+}
+const changedSince = rev => [...gitList(['diff', '--name-only', '--relative', '--no-renames', '-z', rev]), ...untrackedFiles(), ...flaggedChanged()];
+// .gitignore 파일: 무시 줄로 자기 자신까지 숨길 수 있어 --exclude-standard 없이 따로 나열
+const isIgnoreFile = f => /(^|\/)\.gitignore$/.test(f) && !f.startsWith('.murba/');
+const ignoreFilesChanged = rev => [...gitList(['diff', '--name-only', '--relative', '--no-renames', '-z', rev, '--', ':(glob)**/.gitignore']), ...gitList(['ls-files', '--others', '-z', '--', ':(glob)**/.gitignore', ':(exclude).murba/**', ...ARTIFACT_PATHSPEC])].filter(isIgnoreFile);
 const fileHash = f => { try { return sha256File(path.join(proj, f)); } catch { return null; } };
 const gateFile = (f, globs) => !f.startsWith('.murba/') && f !== '.gitignore' && !isTestPath(f) && !CONFIG_RE.test(f) && (matchAny(f, globs) || CODE_EXT.test(f));
 // init 때 이미 바뀌어 있던 구현 파일(추적 파일의 변경·삭제, 추적 안 된 파일)과 그 내용 해시(삭제면 null). 사용자가 하던 작업을 게이트가 오탐하지 않게 한다
 function dirtyBaseline(globs) {
-  try { return Object.fromEntries([...new Set(changedSince('HEAD'))].filter(f => gateFile(f, globs)).map(f => [f, fileHash(f)])); } catch { return {}; }
+  try { return Object.fromEntries([...new Set([...changedSince('HEAD'), ...ignoreFilesChanged('HEAD')])].filter(f => gateFile(f, globs) || isIgnoreFile(f)).map(f => [f, fileHash(f)])); } catch { return {}; }
 }
 function sourceChanges(st) {
   if (!st.base_sha) return null;
@@ -124,8 +139,10 @@ function sourceGate(st, what) {
 function skippedRunGate(st, what) {
   let ch = sourceChanges(st);
   if (ch === null) return gateUnavailable(st, what);
-  // 생략한 실행은 .gitignore도 바꿀 수 없다(무시 줄로 새 파일을 게이트에서 숨길 수 있어서)
-  try { ch = [...ch, ...[...new Set(changedSince(st.base_sha))].filter(f => /(^|\/)\.gitignore$/.test(f) && !ch.includes(f) && !f.startsWith('.murba/'))]; } catch { return gateUnavailable(st, what); }
+  // 생략한 실행은 .gitignore도 바꿀 수 없다(무시 줄로 새 파일을 게이트에서 숨길 수 있어서). init 때 이미 바뀐 것은 기준선
+  const base = st.base_dirty || {};
+  const same = f => Object.prototype.hasOwnProperty.call(base, f) && base[f] === fileHash(f);
+  try { ch = [...ch, ...[...new Set([...ignoreFilesChanged(st.base_sha), ...Object.keys(base).filter(isIgnoreFile)])].filter(f => !ch.includes(f) && !same(f))]; } catch { return gateUnavailable(st, what); }
   if (ch.length) { appendEvent(proj, 'source_changed_in_skipped_run', { what, files: ch }); fail(2, `SOURCE_CHANGED_IN_SKIPPED_RUN: ${ch.join(', ')} — build·평가를 건너뛴 실행(조사·위험 요청 보고)은 검증되지 않은 구현 파일 변경을 남길 수 없다. 이 변경을 되돌리거나(재현 스크립트는 프로젝트 밖으로) 다시 ${what}`); }
 }
 

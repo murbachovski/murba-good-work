@@ -212,8 +212,8 @@ function main() {
     deny(`[murba guard] ${reason}. 이 작업은 하지 말고 다른 작업을 계속하세요.` + (cls ? ' 결정 큐에 기록됨.' : ''));
   };
 
-  // 0) no timed self-wakeups inside a murba run: subagent completion arrives as a notification (t093: ScheduleWakeup polling)
-  if (tool === 'ScheduleWakeup' || tool === 'CronCreate') block('murba 실행 중에는 예약 호출로 기다리지 않는다. 서브에이전트가 끝나면 완료 알림이 자동으로 온다. 턴을 끝내지 말고 할 수 있는 작업을 하거나 알림을 기다려 이어 간다', 'no-wakeup', null);
+  // 0) no timed self-wakeups while a murba run is in progress: subagent completion arrives as a notification (t093: ScheduleWakeup polling)
+  if ((tool === 'ScheduleWakeup' || tool === 'CronCreate') && st.phase && st.phase !== 'done') block('murba 실행 중에는 예약 호출로 기다리지 않는다. 서브에이전트가 끝나면 완료 알림으로 다시 불린다: 할 일이 없으면 턴을 끝내고 알림을 기다린다(sleep으로 기다리지 않는다)', 'no-wakeup', null);
   // 1) irreversible commands — everyone
   if (tool === 'Bash') {
     const r = analyzeBash(ti.command, proj);

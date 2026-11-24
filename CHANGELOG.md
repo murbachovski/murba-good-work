@@ -10,10 +10,12 @@
 ## [플러그인 0.1.3] - 2026-11-24
 ### 바뀜 ([ADR 0006](docs/decisions/0006-no-wakeups-and-gitignore.md))
 - guard: 승인 전 메인 세션의 프로젝트 `.gitignore` 쓰기도 거부(무시 줄로 새 파일을 소스 변경 게이트에서 숨길 수 있었음)
-- 생략 게이트(`SOURCE_CHANGED_IN_SKIPPED_RUN`): 어느 폴더의 `.gitignore` 변경도 변경으로 봄
-- guard: murba 프로젝트에서 `ScheduleWakeup`·`CronCreate` 거부(t093에서 서브에이전트 대기에 예약 호출 4회). hook matcher에 추가
+- 생략 게이트(`SOURCE_CHANGED_IN_SKIPPED_RUN`): 어느 폴더의 `.gitignore` 변경도 변경으로 봄(자기 자신을 무시하는 새 파일 포함, init 때 이미 바뀐 것은 기준선)
+- 두 소스 변경 게이트: `assume-unchanged`·`skip-worktree` 표시된 추적 파일도 내용 비교
+- guard: murba 실행 중(done 전) `ScheduleWakeup`·`CronCreate` 거부(t093에서 서브에이전트 대기에 예약 호출 4회). hook matcher에 추가
 ### 검증
-- 테스트 223개 중 222 통과, 1 건너뜀(로컬 rg). 세 변경 각각 되돌린 뮤테이션에서 새 테스트 실패 확인
+- 테스트 227개 중 226 통과, 1 건너뜀(로컬 rg). 변경마다 되돌린 뮤테이션 8종에서 새 테스트 실패 확인
+- 독립 리뷰 1회: 차단 2건(자기 무시 `.gitignore`, init 전 `.gitignore` 오탐)과 중요 3건 반영
 
 ## [플러그인 0.1.2] - 2026-11-24
 ### 바뀜 ([ADR 0005](docs/decisions/0005-skipped-runs-and-baseline.md))
