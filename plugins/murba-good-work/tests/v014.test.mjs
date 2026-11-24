@@ -106,8 +106,8 @@ test('v0.1.4 r1: each qa round and each amend needs its own fresh report; empty 
   assert.equal(m(p, ['lock-tests', '--amend', 'tests/a.test.js', '--reason', 'r1']).code, 0);
   write(p, 'tests/a.test.js', '// AC-001 v3\n');
   assert.equal(m(p, ['lock-tests', '--amend', 'tests/a.test.js', '--reason', 'r2']).code, 2, 'second amend cannot reuse the first report');
-  // qa round 2 after a fix needs a new evaluator report
-  setState(p, s => { s.phase = 'evaluate'; s.current_ac = 'AC-001'; s.test_hashes = Object.fromEntries(Object.keys(s.test_hashes).map(k => [k, s.test_hashes[k]])); });
+  // amend in evaluate, then enter qa: a report left over from before this qa round does not count
+  setState(p, s => { s.phase = 'evaluate'; s.current_ac = 'AC-001'; });
   assert.equal(m(p, ['lock-tests', '--amend', 'tests/a.test.js', '--reason', 'r2']).code, 2);
   agentReport(p, 'test-writer', 'amend2.md');
   assert.equal(m(p, ['lock-tests', '--amend', 'tests/a.test.js', '--reason', 'r2']).code, 0);
@@ -138,4 +138,54 @@ test('v0.1.4 r1: a risky run cannot skip out of qa without the evaluator; old le
   assert.equal(m(p, ['ac', 'verdict', 'AC-001', 'VERIFIED', '--sha', 'a', '--final']).code, 0);
   m(p, ['handoff', 'qa'], { stdin: 'qa' });
   assert.match(m(p, ['phase', 'report']).err, /EVALUATOR_REPORT_MISSING/);
+});
+
+// ---- PR #16 review round 2 ----
+test('v0.1.4 r2: sh -c / eval payloads keep the outer cd; escaped quotes and `--` are followed', () => {
+  const p = tmpProj(); approved(p);
+  setState(p, s => { s.phase = 'qa'; });
+  for (const c of ["cd .murba && sh -c 'echo ok > reports/evaluator/qa.md'", 'cd .murba/reports && bash -c "cp ../../x.md evaluator/qa.md"', "pushd .murba/reports/evaluator && sh -c 'echo ok > qa.md'",
+    "cd .murba && sh -c 'echo x >> events.jsonl'", 'bash -c -- "echo ok > .murba/reports/evaluator/qa.md"',
+    `bash -c "node -e \\"require('fs').writeFileSync('.murba/reports/evaluator/qa.md','ok')\\""`])
+    deny(p, bash(p, c), c);
+  allow(p, bash(p, "cd .murba/evidence && sh -c 'npm test > run.log'", sub('evaluator')), 'evaluator writes evidence via sh -c after cd');
+  allow(p, bash(p, "cd .murba/reports/qa && sh -c 'npm test > x.log'"), 'main writes own qa folder via sh -c after cd');
+});
+
+test('v0.1.4 r2: a risky run that locked tests cannot skip from evaluate past qa without the evaluator', () => {
+  const H = { env: { MURBA_HEADLESS: '1' } };
+  const p = tmpProj({ murba: false }); assert.equal(m(p, ['init', '--headless', '--auto-approve'], H).code, 0);
+  approved(p, '{"task_type":"feature","risky":true}');
+  write(p, 'tests/a.test.js', '// AC-001\n'); setState(p, s => { s.phase = 'test-write'; }); agentReport(p, 'test-writer');
+  assert.equal(m(p, ['lock-tests', 'tests/**']).code, 0);
+  setState(p, s => { s.phase = 'evaluate'; s.current_ac = 'AC-001'; });
+  assert.equal(m(p, ['ac', 'verdict', 'AC-001', 'VERIFIED', '--sha', 'a']).code, 0);
+  m(p, ['handoff', 'evaluate'], { stdin: 'ev' });
+  const r = m(p, ['phase', 'report', '--skip', '위험 요청'], H);
+  assert.equal(r.code, 2, r.out); assert.match(r.err, /EVALUATOR_REPORT_MISSING/);
+  write(p, '.murba/reports/evaluator/repro.mjs', 'process.exit(0)'); // helper script is not a report
+  assert.equal(m(p, ['phase', 'report', '--skip', '위험 요청'], H).code, 2);
+  agentReport(p, 'evaluator', 'qa.md');
+  assert.equal(m(p, ['phase', 'report', '--skip', '위험 요청'], H).code, 0);
+});
+
+test('v0.1.4 r2: the real lock stamps its time; --amend on an old ledger uses the last lock event', () => {
+  const p = tmpProj(); approved(p);
+  write(p, 'tests/a.test.js', '// AC-001\n'); setState(p, s => { s.phase = 'test-write'; });
+  agentReport(p, 'test-writer'); // written before the lock (the CLI process starts later)
+  assert.equal(m(p, ['lock-tests', 'tests/**']).code, 0);
+  assert.ok(readState(p).tests_locked_at, 'lock-tests records tests_locked_at');
+  setState(p, s => { s.phase = 'build'; });
+  write(p, 'tests/a.test.js', '// AC-001 v2\n');
+  assert.match(m(p, ['lock-tests', '--amend', 'tests/a.test.js', '--reason', 'r']).err, /TEST_WRITER_REPORT_MISSING/, 'report from before the lock');
+  setState(p, s => { delete s.tests_locked_at; }); // v0.1.3 ledger: no stamp → last lock_tests event
+  assert.match(m(p, ['lock-tests', '--amend', 'tests/a.test.js', '--reason', 'r']).err, /TEST_WRITER_REPORT_MISSING/, 'old ledger falls back to the lock event');
+});
+
+test('v0.1.4 r2: find -exec commands are followed', () => {
+  const p = tmpProj(); approved(p);
+  setState(p, s => { s.phase = 'qa'; });
+  deny(p, bash(p, `find . -name x.md -exec sh -c 'cp "$1" .murba/reports/evaluator/qa.md' _ {} \;`), 'find -exec sh -c');
+  deny(p, bash(p, 'find . -name x.md -exec cp {} .murba/reports/evaluator/qa.md \;'), 'find -exec cp');
+  allow(p, bash(p, 'find . -name "*.log" -exec cat {} \;'), 'find -exec cat');
 });

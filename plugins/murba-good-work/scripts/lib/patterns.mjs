@@ -199,6 +199,7 @@ export function tokenize(seg) {
   const out = []; let cur = '', q = null, has = false;
   for (let i = 0; i < seg.length; i++) {
     const c = seg[i];
+    if (q === '"' && c === '\\' && /["\\$`]/.test(seg[i + 1] || '')) { cur += seg[++i]; continue; } // bash: \" \\ \$ \` escape inside "..."
     if (q) { if (c === q) q = null; else cur += c; continue; }
     if (c === "'" || c === '"') { q = c; has = true; continue; }
     if (c === '\\') { cur += seg[++i] ?? ''; has = true; continue; }
@@ -287,13 +288,14 @@ const base = t => (t || '').split('/').pop();
 export function shellPayload(w) {
   if (!SHELLS.includes(base(w[0]))) return null;
   const ci = w.findIndex((t, k) => k > 0 && /^-[a-zA-Z]*c[a-zA-Z]*$/.test(t));
-  return ci > 0 && w[ci + 1] !== undefined ? w[ci + 1] : null;
+  const pi = w[ci + 1] === '--' ? ci + 2 : ci + 1; // `bash -c -- "..."`
+  return ci > 0 && w[pi] !== undefined ? w[pi] : null;
 }
 
 // Segments with their words and the working directory they run in (tracks `cd` within one command line).
-export function walkSegments(cmd, proj) {
+export function walkSegments(cmd, proj, startCwd) {
   const { segments, heredocs } = splitSegments(String(cmd || ''));
-  let cwd = proj || null;
+  let cwd = startCwd || proj || null;
   const out = [];
   for (const s of segments) {
     const words = commandWords(tokenize(s.text));
@@ -712,15 +714,22 @@ export function bashWriteTargets(cmd) {
 
 // Write targets as canonical project-relative paths (cd-aware; globs/braces kept as patterns for relIs/relUnder)
 // sh -c / bash -lc / eval payloads are followed (their writes count too)
-export function bashWriteRels(cmd, proj, depth = 0) {
-  const { segs, heredocs } = walkSegments(cmd, proj);
+export function bashWriteRels(cmd, proj, depth = 0, startCwd) {
+  const { segs, heredocs } = walkSegments(cmd, proj, startCwd);
   const out = [];
   for (const s of segs) {
     for (const t of segWriteTargets(s.text, s.words, heredocs.map(h => h.body))) out.push(...pathVariants(proj, t, s.cwd));
     if (depth < 3) {
       const payload = shellPayload(s.words);
       const inner = payload !== null ? payload : (s.c0 === 'eval' ? s.words.slice(1).join(' ') : null);
-      if (inner) out.push(...bashWriteRels(inner, proj, depth + 1));
+      if (inner) out.push(...bashWriteRels(inner, proj, depth + 1, s.cwd)); // the payload runs in the outer segment's cwd
+      // `find … -exec <cmd> … \;` runs <cmd> (cp/mv/sh -c …) in the same cwd
+      if (s.c0 === 'find') s.words.forEach((t, k) => {
+        if (!['-exec', '-execdir', '-ok', '-okdir'].includes(t)) return;
+        const end = s.words.findIndex((x, j) => j > k && (x === ';' || x === '+'));
+        const sub = s.words.slice(k + 1, end < 0 ? undefined : end);
+        if (sub.length) out.push(...bashWriteRels(sub.map(x => `'${x.replace(/'/g, `'\\''`)}'`).join(' '), proj, depth + 1, s.cwd));
+      });
     }
   }
   return out;

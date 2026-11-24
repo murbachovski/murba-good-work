@@ -224,7 +224,7 @@ function main() {
   // 2a) main session: subagent report folders are the subagents' evidence of independent work; tests and hidden checks are written by test-writer
   const mainWriteReason = rel => {
     if (name || !rel) return null;
-    if (AGENT_REPORT_DIRS.some(a => relIs(rel, `.murba/reports/${a}`) || relUnder(rel, `.murba/reports/${a}`) || relIs(rel, '.murba/reports') && false)) return [`${rel}은 그 서브에이전트만 쓴다(독립 작업의 증거). 해당 에이전트를 불러 쓰게 한다`, 'agent-report'];
+    if (AGENT_REPORT_DIRS.some(a => relIs(rel, `.murba/reports/${a}`) || relUnder(rel, `.murba/reports/${a}`))) return [`${rel}은 그 서브에이전트만 쓴다(독립 작업의 증거). 해당 에이전트를 불러 쓰게 한다`, 'agent-report'];
     if (relUnder(rel, '.murba/hidden') || relIs(rel, '.murba/hidden')) return [`숨긴 검사(${rel})는 test-writer가 쓴다`, 'main-hidden'];
     if (st.phase === 'test-write' && isTestPath(rel) && !relUnder(rel, '.murba')) return [`테스트(${rel})는 test-writer가 AC만 보고 쓴다. murba-good-work:test-writer를 부른다`, 'main-test-write'];
     return null;

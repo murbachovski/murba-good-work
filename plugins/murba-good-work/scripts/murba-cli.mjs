@@ -189,16 +189,20 @@ function skippedRunGate(st, what) {
   if (ch.length) { appendEvent(proj, 'source_changed_in_skipped_run', { what, files: ch }); fail(2, `SOURCE_CHANGED_IN_SKIPPED_RUN: ${ch.join(', ')} — build·평가를 건너뛴 실행(조사·위험 요청 보고)은 검증되지 않은 구현 파일 변경을 남길 수 없다. 이 변경을 되돌리거나(재현 스크립트는 프로젝트 밖으로) 다시 ${what}`); }
 }
 
-// 서브에이전트가 직접 쓴 보고 파일이 since 이후에 있는가(guard가 메인 세션의 그 폴더 쓰기를 막는다: 판정·테스트의 독립성 증거)
+// 서브에이전트가 직접 쓴 보고(.md, 빈 파일 제외)가 since 이후에 있는가. 보조 스크립트·로그는 보고가 아니다(guard가 메인 세션의 그 폴더 쓰기를 막는다: 판정·테스트의 독립성 증거)
 // 단계 진입 시각: 원장 값, 없으면(이전 버전 원장) 이벤트 기록의 마지막 진입, 그것도 없으면 승인 시각
 function lastEntry(st, field, phase) {
   if (st[field]) return st[field];
   try { const ev = fs.readFileSync(path.join(md, 'events.jsonl'), 'utf8').trim().split('\n').map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(e => e && e.kind === 'phase' && e.to === phase); if (ev.length) return ev[ev.length - 1].ts; } catch {}
   return st.approved_at || null;
 }
+function lastEventTs(kind) {
+  try { const ev = fs.readFileSync(path.join(md, 'events.jsonl'), 'utf8').trim().split('\n').map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(e => e && e.kind === kind); if (ev.length) return ev[ev.length - 1].ts; } catch {}
+  return null;
+}
 function agentReportSince(agent, sinceIso) {
   const d = path.join(md, 'reports', agent), since = sinceIso ? Date.parse(sinceIso) : 0;
-  try { return fs.readdirSync(d).some(f => { const s = fs.statSync(path.join(d, f)); return s.isFile() && s.size > 0 && s.mtimeMs >= since; }); } catch { return false; }
+  try { return fs.readdirSync(d).some(f => { const s = fs.statSync(path.join(d, f)); return f.endsWith('.md') && s.isFile() && s.size > 0 && s.mtimeMs >= since; }); } catch { return false; }
 }
 
 function commonChecks(st, cur) {
@@ -302,7 +306,9 @@ const cmds = {
         gateEntry(st, next);
         // build나 미검증 evaluate를 건너뛰는 생략이면(승인 여부와 무관) 구현 파일 변경이 있을 수 없다
         if (skipNeedsGate(st, path_)) skippedRunGate(st, `murba phase ${next} --skip`);
-        if (cur === 'qa' && !agentReportSince('evaluator', lastEntry(st, 'qa_entered_at', 'qa'))) { appendEvent(proj, 'evaluator_report_missing', { phase: cur, skip: true }); fail(2, 'EVALUATOR_REPORT_MISSING: qa를 생략으로 떠나도 이번 qa 회차의 독립 평가(evaluator) 보고가 필요하다'); }
+        // qa에서 떠나거나, 테스트를 잠그고 구현한 뒤 qa를 건너뛰면 독립 평가 보고가 필요하다(위험 요청이 evaluate에서 바로 생략하는 경우 포함)
+        const qaSince = cur === 'qa' ? lastEntry(st, 'qa_entered_at', 'qa') : (path_.includes('qa') && Object.keys(st.test_hashes || {}).length ? st.approved_at || lastEventTs('lock_tests') : undefined);
+        if (qaSince !== undefined && !agentReportSince('evaluator', qaSince)) { appendEvent(proj, 'evaluator_report_missing', { phase: cur, skip: true }); fail(2, 'EVALUATOR_REPORT_MISSING: 테스트를 잠근 실행은 qa를 생략해도 독립 평가(evaluator) 보고가 필요하다(qa에서 떠나면 이번 회차 보고)'); }
         st.skipped = st.skipped || {};
         for (const ph of path_) st.skipped[ph] = String(skipReason);
         st.phase = next;
@@ -499,7 +505,7 @@ const cmds = {
       const notLocked = files.filter(f => !locked[f]);
       if (notLocked.length) fail(2, `--amend는 이미 고정된 테스트만: ${notLocked.join(', ')}`);
       const changed = files.filter(f => locked[f] !== hashes[f]);
-      if (!agentReportSince('test-writer', readState(proj).tests_locked_at || readState(proj).approved_at)) { appendEvent(proj, 'test_writer_report_missing', { amend: true }); fail(2, 'TEST_WRITER_REPORT_MISSING: 테스트 재작성은 test-writer가 한다. murba-good-work:test-writer가 .murba/reports/test-writer/에 보고를 쓴 뒤 다시 --amend'); }
+      if (!agentReportSince('test-writer', readState(proj).tests_locked_at || lastEventTs('lock_tests') || readState(proj).approved_at)) { appendEvent(proj, 'test_writer_report_missing', { amend: true }); fail(2, 'TEST_WRITER_REPORT_MISSING: 테스트 재작성은 test-writer가 한다. murba-good-work:test-writer가 .murba/reports/test-writer/에 보고를 쓴 뒤 다시 --amend'); }
       updateState(proj, st => {
         st.tests_locked_at = nowIso();
         st.test_hashes = { ...st.test_hashes, ...hashes };
