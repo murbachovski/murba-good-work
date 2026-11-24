@@ -29,8 +29,8 @@ const ask = reason => decide('ask', reason);
 // task type: locked in state at triage→grill when present, else the run plan
 const taskTypeOf = (st, proj) => st.task_type || runPlanType(proj);
 const preApprovalActive = (st, proj) => { const t = taskTypeOf(st, proj); return !!st.phase && st.phase !== 'done' && !st.approved && !!t && t !== 'investigation'; };
-// a project path the pre-approval rule protects: inside the project, not .murba/, not .gitignore
-const outsideMurba = rel => rel !== undefined && rel !== null && !path.isAbsolute(rel) && !/^\.\.(\/|$)/.test(rel) && !relIs(rel, '.murba') && !relUnder(rel, '.murba') && rel !== '.gitignore';
+// a project path the pre-approval rule protects: inside the project, not .murba/ (.gitignore too: an ignore line can hide a new file from the source gate)
+const outsideMurba = rel => rel !== undefined && rel !== null && !path.isAbsolute(rel) && !/^\.\.(\/|$)/.test(rel) && !relIs(rel, '.murba') && !relUnder(rel, '.murba');
 // Writes a Bash command makes, per segment (cd-aware). git arguments count only in the git segment itself:
 // checkout/restore paths are writes, branch names are not; apply/am/patch and formatters write (targets may be unknown).
 function preApprovalBashWrites(cmd, proj) {
@@ -212,6 +212,8 @@ function main() {
     deny(`[murba guard] ${reason}. 이 작업은 하지 말고 다른 작업을 계속하세요.` + (cls ? ' 결정 큐에 기록됨.' : ''));
   };
 
+  // 0) no timed self-wakeups inside a murba run: subagent completion arrives as a notification (t093: ScheduleWakeup polling)
+  if (tool === 'ScheduleWakeup' || tool === 'CronCreate') block('murba 실행 중에는 예약 호출로 기다리지 않는다. 서브에이전트가 끝나면 완료 알림이 자동으로 온다. 턴을 끝내지 말고 할 수 있는 작업을 하거나 알림을 기다려 이어 간다', 'no-wakeup', null);
   // 1) irreversible commands — everyone
   if (tool === 'Bash') {
     const r = analyzeBash(ti.command, proj);

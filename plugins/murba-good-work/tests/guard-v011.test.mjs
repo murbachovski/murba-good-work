@@ -126,9 +126,9 @@ test('v0.1.1 r2 #11: whole-tree discards, stash drop/clear, git clean -f are irr
     allow(p, bash(p, c), c);
 });
 
-test('v0.1.1 r2: .gitignore may be written before approval (false positive fix)', () => {
+test('v0.1.3: .gitignore is a project file before approval (an ignore line could hide a new source file); .murba/ files stay writable', () => {
   const p = projAt('grill', 'bug-fix');
-  allow(p, W(p, '.gitignore'), 'Write .gitignore');
-  allow(p, bash(p, 'echo .murba/ >> .gitignore'), 'append .gitignore');
+  deny(p, W(p, '.gitignore'), 'Write .gitignore');
+  deny(p, bash(p, 'echo src/x.js >> .gitignore'), 'append .gitignore');
   allow(p, bash(p, "cat > .murba/brief.md <<'EOF'\nbrief\nEOF"), 'brief heredoc');
 });

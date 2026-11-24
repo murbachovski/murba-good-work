@@ -10,7 +10,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|Read|Grep|Glob",
+        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit|Read|Grep|Glob|ScheduleWakeup|CronCreate",
         "hooks": [
           { "type": "command", "command": "sh", "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/run-hook.sh", "guard"], "timeout": 10, "onFailure": "block" }
         ]

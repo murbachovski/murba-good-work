@@ -122,8 +122,10 @@ function sourceGate(st, what) {
 
 // 생략으로 끝나는 실행(조사·위험 요청 보고)은 구현 파일을 바꿀 수 없다. 과제 성격을 스스로 조사·위험으로 적고 생략한 뒤 직접 고치는 경로를 막는다
 function skippedRunGate(st, what) {
-  const ch = sourceChanges(st);
+  let ch = sourceChanges(st);
   if (ch === null) return gateUnavailable(st, what);
+  // 생략한 실행은 .gitignore도 바꿀 수 없다(무시 줄로 새 파일을 게이트에서 숨길 수 있어서)
+  try { ch = [...ch, ...[...new Set(changedSince(st.base_sha))].filter(f => /(^|\/)\.gitignore$/.test(f) && !ch.includes(f) && !f.startsWith('.murba/'))]; } catch { return gateUnavailable(st, what); }
   if (ch.length) { appendEvent(proj, 'source_changed_in_skipped_run', { what, files: ch }); fail(2, `SOURCE_CHANGED_IN_SKIPPED_RUN: ${ch.join(', ')} — build·평가를 건너뛴 실행(조사·위험 요청 보고)은 검증되지 않은 구현 파일 변경을 남길 수 없다. 이 변경을 되돌리거나(재현 스크립트는 프로젝트 밖으로) 다시 ${what}`); }
 }
 
