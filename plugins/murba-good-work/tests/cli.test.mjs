@@ -20,11 +20,12 @@ function toApprove(p, { autoApprove = true } = {}) {
   assert.equal(m(p, ['phase', 'approve']).code, 0);
 }
 
-test('init creates state, gitignore, refuses re-init', () => {
+test('init creates state, ignores .murba/ without touching the project .gitignore, refuses re-init', () => {
   const p = tmpProj();
   const st = readState(p);
   assert.equal(st.phase, 'triage'); assert.equal(st.auto, false);
-  assert.match(fs.readFileSync(path.join(p, '.gitignore'), 'utf8'), /^\.murba\/$/m);
+  assert.equal(fs.existsSync(path.join(p, '.gitignore')), false, 'v0.1.2: no project .gitignore');
+  assert.equal(fs.readFileSync(path.join(p, '.murba', '.gitignore'), 'utf8'), '*\n');
   assert.equal(m(p, ['init']).code, 1);
 });
 

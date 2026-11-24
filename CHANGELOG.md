@@ -7,6 +7,14 @@
 
 ## [Unreleased]
 
+## [플러그인 0.1.2] - 2026-11-24
+### 바뀜 ([ADR 0005](docs/decisions/0005-skipped-runs-and-baseline.md))
+- `murba init`이 대상 저장소 `.gitignore`를 만들거나 고치지 않음. `.murba/.gitignore`(`*`)로 제외(v0.1.1 확장 비교: murba 25개 중 20개에서 사용자 커밋에 섞임, n13 실패)
+- 승인 없이 생략한 실행(조사·위험 요청 보고)은 init 이후 구현 파일을 바꾸면 `--skip`과 `report → done`에서 거부(`SOURCE_CHANGED_IN_SKIPPED_RUN`). triage에서 과제 성격을 스스로 조사·위험으로 적어 생략한 뒤 직접 고치는 경로를 닫음
+- init 때 이미 바뀌어 있던 파일은 내용 해시로 기준선 기록(`base_dirty`). 그대로면 소스 변경 게이트에서 제외. `init --force`는 처음 기준선 유지
+### 검증
+- 테스트 209개 통과(새 5개). 세 변경 각각을 되돌린 뮤테이션에서 새 테스트가 실패함을 확인
+
 ## [플러그인 0.1.1] - 2026-11-24
 ### 바뀜 ([ADR 0004](docs/decisions/0004-no-pipeline-skip-for-implementation.md))
 - 구현 작업은 파이프라인을 건너뛸 수 없음: 모든 `--skip`은 triage를 떠날 때 원장에 고정한 과제 성격이 조사이거나 위험 요청(`risky`)일 때만. 결정 큐 기록은 생략을 열지 않음
