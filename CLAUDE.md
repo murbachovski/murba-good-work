@@ -4,15 +4,16 @@
 이 파일은 목차다. 규칙 본문은 `docs/rules/`에 있고 작업 전에 해당 파일을 읽는다.
 
 ## 현재 상태
-- 단계: 설계(문서) 완료, 구현 전. 다음은 첫 커밋 → 스파이크 → v0.1 구현
+- 단계: 플러그인 v0.1.0 구현·시나리오 시험(100개 과제) 완료. 시험 변경은 [ADR 0002](docs/decisions/0002-scenario-test-changes.md)
 - 기준 문서: [기획서 v0.1](docs/spec/spec-v0.1.md) — 모든 구현은 기획서가 우선한다
 - 결정 기록: [초기 결정 로그](docs/decisions/0001-initial-decision-log.md)
 
 ## 저장소 구조
 | 경로 | 내용 |
 |---|---|
-| `.claude-plugin/marketplace.json` | (예정) 로컬 marketplace. 플러그인 목록 |
-| `plugins/murba-good-work/` | (예정) 플러그인 본체: skills, agents, hooks, scripts, evals |
+| `.claude-plugin/marketplace.json` | marketplace. 플러그인 목록 |
+| `plugins/murba-good-work/` | 플러그인 본체: skills, agents, hooks, scripts, bin, tests |
+| `scenarios/` | 시나리오 과제(`tasks.json`)·시드·무인 실행기(`harness/`) |
 | `docs/spec/` | 기획서. 버전별 파일 |
 | `docs/rules/` | 작업 규칙 (아래 목차) |
 | `docs/research/` | 조사 자료: 플러그인·실무, 논문 |
@@ -45,11 +46,11 @@
 - 로컬 실행: `claude --plugin-dir ./plugins/murba-good-work`
 - 편집 반영: `/reload-plugins`
 
-## 검증 명령 (구현 시작 후)
+## 검증 명령
 ```bash
 claude plugin validate ./plugins/murba-good-work --strict   # 구조 검사
-node --test plugins/murba-good-work/tests/                   # hook 단위 테스트
-claude plugin eval ./plugins/murba-good-work                 # 동작 평가
+node --test 'plugins/murba-good-work/tests/*.test.mjs'      # hook·CLI 테스트(node 26은 디렉터리 인자 불가)
+claude plugin eval ./plugins/murba-good-work                 # 동작 평가(evals/ 미작성 — v0.1.0은 scenarios/harness로 대신)
 ```
 
 ## 참고 자료

@@ -1,0 +1,194 @@
+{
+  "schema": 1,
+  "description": "murba-good-work v0.1 phase transitions. Only the orchestrator changes phase via `murba phase <next>`. `requires` lists artifacts (relative to .murba/) that must exist before LEAVING the phase. `auto` = phase runs unattended (Stop gate active).",
+  "phases": {
+    "triage": {
+      "flow": "0 작업 설계",
+      "owner": "triage",
+      "auto": false,
+      "requires": [
+        "run-plan.json"
+      ],
+      "next": [
+        "grill"
+      ]
+    },
+    "grill": {
+      "flow": "1 기획서 작성",
+      "owner": "orchestrator",
+      "auto": false,
+      "requires": [
+        "spec.md"
+      ],
+      "next": [
+        "spec-review"
+      ]
+    },
+    "spec-review": {
+      "flow": "2 기획서 검토",
+      "owner": "spec-reviewer",
+      "auto": false,
+      "requires": [
+        "reports/spec-reviewer/review.md"
+      ],
+      "next": [
+        "revise"
+      ]
+    },
+    "revise": {
+      "flow": "3 기획서 보완",
+      "owner": "orchestrator",
+      "auto": false,
+      "requires": [
+        "spec.md",
+        "ac-test-map.md"
+      ],
+      "next": [
+        "approve"
+      ]
+    },
+    "approve": {
+      "flow": "승인(사람 1회)",
+      "owner": "user",
+      "auto": false,
+      "requires": [
+        "@approved"
+      ],
+      "next": [
+        "setup"
+      ]
+    },
+    "setup": {
+      "flow": "5 개발 셋팅",
+      "owner": "orchestrator",
+      "auto": true,
+      "requires": [
+        "handoff/setup.md",
+        "init.sh"
+      ],
+      "next": [
+        "test-write"
+      ]
+    },
+    "test-write": {
+      "flow": "4 기획 기반 진행",
+      "owner": "test-writer",
+      "auto": true,
+      "requires": [
+        "handoff/test-write.md",
+        "@test_hashes"
+      ],
+      "next": [
+        "build"
+      ]
+    },
+    "build": {
+      "flow": "6 구현",
+      "owner": "builder",
+      "auto": true,
+      "requires": [
+        "handoff/build.md"
+      ],
+      "next": [
+        "evaluate"
+      ]
+    },
+    "evaluate": {
+      "flow": "8 검증",
+      "owner": "evaluator",
+      "auto": true,
+      "requires": [
+        "@current_ac_verdict"
+      ],
+      "next": [
+        "fix",
+        "build",
+        "qa"
+      ]
+    },
+    "fix": {
+      "flow": "수정 루프",
+      "owner": "builder",
+      "auto": true,
+      "requires": [
+        "handoff/fix.md"
+      ],
+      "next": [
+        "evaluate"
+      ]
+    },
+    "qa": {
+      "flow": "9 QA",
+      "owner": "evaluator",
+      "auto": true,
+      "requires": [
+        "handoff/qa.md",
+        "@final_verdicts"
+      ],
+      "next": [
+        "fix",
+        "browser",
+        "report"
+      ]
+    },
+    "browser": {
+      "flow": "10 실제 브라우저",
+      "owner": "evaluator",
+      "auto": true,
+      "requires": [
+        "handoff/browser.md",
+        "@browser_evidence"
+      ],
+      "next": [
+        "report"
+      ]
+    },
+    "report": {
+      "flow": "보고",
+      "owner": "orchestrator",
+      "auto": true,
+      "requires": [
+        "report.md"
+      ],
+      "next": [
+        "done",
+        "build"
+      ]
+    },
+    "done": {
+      "flow": "끝",
+      "owner": "orchestrator",
+      "auto": false,
+      "requires": [],
+      "next": []
+    }
+  },
+  "special_requires": {
+    "@approved": "state.approved === true",
+    "@test_hashes": "state.test_hashes has at least one entry",
+    "@current_ac_verdict": "state.ac[state.current_ac] has a verdict entry OR is held",
+    "@final_verdicts": "every non-held AC has final_verdict at state.final_sha",
+    "@browser_evidence": "every non-held AC with browser:true has evidence/<run>/<AC-ID>.png"
+  },
+  "limits": {
+    "stop_blocks_per_phase": 3,
+    "stop_blocks_per_run": 12,
+    "fix_rounds_per_ac": 3,
+    "no_improvement_stop": 2
+  },
+  "chain": [
+    "triage",
+    "grill",
+    "spec-review",
+    "revise",
+    "approve",
+    "setup",
+    "test-write",
+    "build",
+    "evaluate",
+    "qa",
+    "browser",
+    "report",
+    "done"
+  ]
+}

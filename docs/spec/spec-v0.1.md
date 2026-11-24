@@ -36,9 +36,9 @@
 | `setup` | 5 개발 셋팅 | 오케스트레이터 | 승인 | 실행 환경, 러너·Playwright 설정, 허용목록, `init.sh`, verify 스킬, (v0.2) 센서 → **권한 점검**(안 맞으면 멈춤 보고) | test-write |
 | `test-write` | 4 기획 기반 진행 | test-writer | 셋팅 | AC 테스트, 숨긴 검사, 테스트 해시 | build |
 | `build[i]` | 6 전문 에이전트 | builder(+역할 스킬) | 테스트 | AC i 구현 커밋 | evaluate |
-| `evaluate` | 8 검증 | evaluator | 커밋 SHA | AC i 판정, 증거 | fix / build[i+1](남은 AC 있음) / qa(남은 AC 없음) |
+| `evaluate` | 8 검증 | 오케스트레이터(AC 테스트 종료 코드로 결정적 판정. INCONCLUSIVE 2회 연속이면 evaluator) | 커밋 SHA | AC i 판정, 증거 | fix / build[i+1](남은 AC 있음) / qa(남은 AC 없음) |
 | `fix` | 수정 루프 | builder | NOT VERIFIED | 수정 커밋 | evaluate (≤3라운드) |
-| `qa` | 9 QA | evaluator (+오케스트레이터 스크립트) | 남은 AC 없음 | **현재 head에서 전 AC 일괄 재판정**, 전체 회귀 테스트, flaky 검사. 뮤테이션 주입·복원은 오케스트레이터 스크립트가 하고 evaluator는 결과만 판정 | browser |
+| `qa` | 9 QA | evaluator (+오케스트레이터 스크립트) | 남은 AC 없음 | **현재 head에서 전 AC 일괄 재판정**, 전체 회귀 테스트, flaky 검사. 뮤테이션 주입·복원은 오케스트레이터 스크립트가 하고 evaluator는 결과만 판정. 독립 evaluator 1회 | browser / report / fix(독립 평가 반례, 수정 상한 안. `murba phase fix --ac`) |
 | `browser` | 10 실제 브라우저 | evaluator | 보류 안 된 AC 전부 VERIFIED(보류 AC는 보고서에 ❌) | Playwright 증거, 상위 목표 검사 | pr 또는 report |
 | `pr` | (v0.2) PR·리뷰 | pr-reviewer | 증거 완비 | 리뷰 판정(SHA) | merge 또는 report |
 | `merge` | (v0.3) 머지 | 오케스트레이터 | 조건 충족 | 머지 확인 | report |
@@ -47,7 +47,7 @@
 - 7 오케스트레이션 = 이 전이표 + 오케스트레이터 자체
 - 8 검증(AC별 테스트 + 숨긴 검사) / 9 QA(전 AC 재판정 + 전체 회귀 + 뮤테이션 + flaky) / 10 실제 브라우저로 구분한다
 - 사용자 흐름상 5 셋팅이 4보다 먼저 실행된다: 테스트를 돌릴 러너·설정이 먼저 있어야 하고, 이 보호 파일은 builder가 쓸 수 없기 때문
-- 쓰기 도구가 있는 서브에이전트(test-writer, builder)는 상세 보고를 `.murba/reports/<agent>/`에 쓴다. test-writer는 추가로 `.murba/hidden/`에 쓸 수 있다. 쓰기 도구가 없는 에이전트(triage, spec-reviewer, evaluator, pr-reviewer)는 보고를 응답에 담고 **오케스트레이터가 받아서** `.murba/reports/<agent>/`에 기록한다
+- 쓰기 도구가 있는 서브에이전트(test-writer, builder)는 상세 보고를 `.murba/reports/<agent>/`에 쓴다. test-writer는 추가로 `.murba/hidden/`에 쓸 수 있다. evaluator·pr-reviewer는 Write를 갖되 guard가 자기 보고 경로(evaluator는 `.murba/evidence/` 포함)로 제한한다. 쓰기 도구가 없는 에이전트(triage, spec-reviewer)는 보고를 응답에 담고 **오케스트레이터가 받아서** `.murba/reports/<agent>/`에 기록한다
 - `run-plan.json`, handoff, `decisions.tsv`, `state.json`, 판정·증거 목록은 **오케스트레이터만** 쓴다
 - `BLOCKED`, `INCONCLUSIVE`, 예산 초과 → 해당 갈래는 결정 큐로, 나머지는 계속
 - 단계 생략은 `run-plan.json`에 `n/a: 사유`로만 가능
@@ -88,8 +88,8 @@
 | spec-reviewer | opus | Read, Grep, Glob | 기획서 검토 1회 | 편집 |
 | test-writer | opus | Read, Write, Edit, Bash(테스트 실행) | AC만 보고 테스트·숨긴 검사(`.murba/hidden/`) 작성 | 구현 코드 열람(guard가 Read도 차단) |
 | builder | sonnet (3라운드: opus 새 인스턴스) | Read, Write, Edit, Bash | 1회 실행 = AC 1개 구현, 역할 스킬 로드 | 테스트·러너 설정 수정, Agent |
-| evaluator | opus | Read, Grep, Glob, Bash(테스트·Playwright) | 판정·증거 | 코드 수정, Agent |
-| pr-reviewer | opus | Read, Grep, Glob, Bash(gh, git) | 독립 PR 리뷰, status check 게시 | 코드 수정, Agent |
+| evaluator | opus | Read, Grep, Glob, Bash(테스트·Playwright), Write(자기 보고·증거만) | 판정·증거 | 코드 수정, Agent |
+| pr-reviewer | opus | Read, Grep, Glob, Bash(gh, git), Write(자기 보고만) | 독립 PR 리뷰, status check 게시 | 코드 수정, Agent |
 | evolve-researcher | sonnet | WebSearch, WebFetch, Read | 생태계·자기 기록 분석 | 편집 |
 
 - 모든 에이전트 `tools`에서 Agent 제외(하위 에이전트 생성 금지를 도구로 강제)
@@ -192,7 +192,8 @@ setup 단계가 대상 프로젝트에 만든다: 타입체크, 린터, 구조 �
 - Bash를 통한 쓰기(리다이렉션, `tee`, `sed -i` 등) 검사는 최선 노력이다. 완전 차단이 아니므로 diff 규칙(§9)으로 사후 감지를 함께 한다
 - 상태 쓰기는 lock 파일 또는 추가 전용 이벤트 로그
 - 실행 기록 `.murba/logs/hooks.jsonl` (fired/blocked/released/exhausted/skipped/error), liveness 경고
-- 비상 해제(`/plugin disable`, `disableAllHooks`)는 이 문서에만. 차단 메시지에 쓰지 않음
+- 비상 해제(`/plugin disable`, `disableAllHooks`, 환경변수 `MURBA_DISABLE=1`)는 이 문서에만. 차단 메시지에 쓰지 않음
+- 위협 모델: 협조적 모델의 실수·테스트 꼼수 방지(의도적 난독화는 범위 밖). 문자열로 막을 수 없는 서브에이전트 상태 변경·원장 변조는 CLI가 호출 주체 기록(`.murba/caller`)과 상태 해시(`.murba/state.sha256`)로 막는다([ADR 0003](../decisions/0003-guard-threat-model.md))
 - 테스트: 실제 Claude Code에서 캡처한 입력 픽스처, 실제 프로세스 실행, 음성 대조군(막으면 안 되는 명령), 모든 테스트 파일이 러너에 연결됐는지 확인
 
 ## 14. 컨텍스트 관리
@@ -339,3 +340,5 @@ murba_good_work_plugin/
 - 2026-11-24 독립 검토(기획서) 13건 반영: setup을 test-write 앞으로 이동·오케스트레이터 담당, evaluate→build[i+1] 전이, qa 단계 신설(전 AC 재판정·뮤테이션), browser 진입 조건 완화(보류 AC 제외), 숨긴 검사 경로·읽기 차단, 산출물 쓰기 주체 명확화, SessionStart에 resume·fork, report→재작업 전이, guard `onFailure`, 역할 스킬 v0.2 표기, feat/* push 예외
 - 2026-11-24 최종 검토 반영: 쓰기 주체 정리(읽기 전용 에이전트 보고는 오케스트레이터가 기록, test-writer의 hidden 예외), qa 뮤테이션 담당을 스크립트로 일치, eval 샌드박스 밖 hook·MCP 명시
 - 2026-11-24 가정 표 원문 대조 반영: M2·M5·M8·M13·M17·M19·M20 정정, M23 확인, M25~M27 추가, agent_type 접두, status check 위조 가능성·GitHub App, settings.local.json, stop-gate 출력 방식, 클라우드 예약 작업 명칭
+- 2026-11-24 시나리오 시험(sonnet, 100개 과제) 결과 반영: [ADR 0002](../decisions/0002-scenario-test-changes.md). AC별 판정을 테스트 종료 코드로 결정적으로, 독립 evaluator는 qa·browser에서 1회, qa → fix 재수정, `--skip`·`[after:]`·`evidence-run`, headless 자동 승인·질문 종료 차단, 서브에이전트 전경 실행
+- 2026-11-24 PR #1 독립 리뷰 2회 반영: guard 위협 모델을 실수 방지망으로 확정, 비상 해제를 환경변수로, 호출 주체 기록·상태 해시·테스트 수정 경로(`lock-tests --amend`) 추가([ADR 0003](../decisions/0003-guard-threat-model.md))

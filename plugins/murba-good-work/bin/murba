@@ -1,0 +1,7 @@
+#!/usr/bin/env node
+// Launcher: no static import/require so it runs as CommonJS (Node 18) or ESM. Real CLI: scripts/murba-cli.mjs
+import('node:fs').then(fs => import('node:url').then(url => {
+  const self = fs.realpathSync(process.argv[1]);
+  const cli = self.replace(/[\\/]bin[\\/][^\\/]*$/, '') + '/scripts/murba-cli.mjs';
+  return import(url.pathToFileURL(cli).href);
+})).catch(e => { process.stderr.write(`murba: ${e && e.message || e}\n`); process.exit(1); });
