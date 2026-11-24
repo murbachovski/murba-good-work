@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tmpProj, murbaCli as m, readState, write } from './helpers.mjs';
+import { spawnSync } from 'node:child_process';
+import { tmpProj, murbaCli as m, readState, write, setState } from './helpers.mjs';
 
 const SPEC = '# spec\n- AC-001 WHEN add(1,2) THE SYSTEM SHALL return 3\n- AC-002 [browser] WHEN page loads THE SYSTEM SHALL show title\n';
 
@@ -123,7 +124,8 @@ test('evaluate: held current AC satisfies requirement', () => {
 test('check-tests detects tampering and deletion', () => {
   const p = tmpProj();
   write(p, 'tests/a.test.js', 'a'); write(p, 'tests/b.test.js', 'b');
-  m(p, ['lock-tests', 'tests/**']);
+  setState(p, s => { s.phase = 'test-write'; });
+  assert.equal(m(p, ['lock-tests', 'tests/**']).code, 0);
   assert.equal(m(p, ['check-tests']).code, 0);
   write(p, 'tests/a.test.js', 'changed'); fs.rmSync(path.join(p, 'tests/b.test.js'));
   const r = m(p, ['check-tests']);
@@ -181,9 +183,80 @@ test('qa → fix --ac reopens a final NOT_VERIFIED AC within fix cap', () => {
     ac: { ...st0.ac, 'AC-001': { ...st0.ac['AC-001'], final_verdict: { verdict: 'NOT_VERIFIED', sha: 'abc' }, verdicts: [{ verdict: 'NOT_VERIFIED', sha: 'abc', final: true }] },
       'AC-002': { ...st0.ac['AC-002'], final_verdict: { verdict: 'VERIFIED', sha: 'abc' }, verdicts: [{ verdict: 'VERIFIED', sha: 'abc', final: true }] } } }));
   write(p, '.murba/handoff/qa.md', 'qa');
+  write(p, 'tests/a.test.js', 'a');
+  setState(p, s => { s.phase = 'test-write'; });
+  assert.equal(m(p, ['lock-tests', 'tests/**']).code, 0);
+  setState(p, s => { s.phase = 'qa'; });
   assert.equal(m(p, ['phase', 'fix']).code, 1);
   assert.equal(m(p, ['phase', 'fix', '--ac', 'AC-002']).code, 2);
   assert.equal(m(p, ['phase', 'fix', '--ac', 'AC-001']).code, 0);
   const st = readState(p);
   assert.equal(st.phase, 'fix'); assert.equal(st.current_ac, 'AC-001');
+});
+
+// ---------- PR #1 독립 리뷰 지적 ----------
+test('review#2: --skip cannot bypass approval or test lock', () => {
+  const p = tmpProj();
+  const r = m(p, ['phase', 'build', '--skip', 'x']);
+  assert.equal(r.code, 2, r.out);
+  assert.equal(readState(p).phase, 'triage');
+  write(p, '.murba/run-plan.json', JSON.stringify({ task_type: 'feature' }));
+  assert.equal(m(p, ['phase', 'qa', '--skip', 'x']).code, 2);
+  // 위험 요청은 report로 가서 끝낼 수 있다
+  assert.equal(m(p, ['phase', 'report', '--skip', '위험 요청']).code, 0);
+  // 승인 없이 approve 뒤 단계에 있으면 ac sync 거부
+  const q = tmpProj();
+  setState(q, s => { s.phase = 'setup'; });
+  write(q, '.murba/spec.md', SPEC);
+  assert.equal(m(q, ['ac', 'sync']).code, 2);
+  // 승인됐어도 테스트 잠금 없이 build 불가
+  const t = tmpProj(); toApprove(t); m(t, ['approve']);
+  setState(t, s => { s.phase = 'test-write'; });
+  write(t, '.murba/handoff/test-write.md', 'x');
+  setState(t, s => { s.test_hashes = {}; });
+  assert.equal(m(t, ['phase', 'build']).code, 2);
+});
+
+test('review#6: launcher runs without ESM detection (Node 18/20 behaviour)', () => {
+  const r = spawnSync('node', ['--no-experimental-detect-module', path.join(import.meta.dirname, '..', 'bin', 'murba'), 'help'], { encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /murba </);
+});
+
+test('review#7: headless approve uses pre-approval stored at init, not env at approve time', () => {
+  const h = tmpProj({ murba: false });
+  m(h, ['init', '--headless']); toApprove(h);
+  assert.equal(m(h, ['approve'], { env: { MURBA_HEADLESS: '1' } }).code, 2);
+  assert.equal(readState(h).approved, false);
+  const h2 = tmpProj({ murba: false });
+  m(h2, ['init'], { env: { MURBA_HEADLESS: '1' } }); toApprove(h2);
+  assert.equal(m(h2, ['approve']).code, 0);
+});
+
+test('review#8: lock-tests only in setup/test-write; leaving build with changed tests refused', () => {
+  const p = tmpProj(); toApprove(p); m(p, ['approve']);
+  write(p, 'tests/a.test.js', 'a');
+  assert.equal(m(p, ['lock-tests', 'tests/**']).code, 2);
+  setState(p, s => { s.phase = 'test-write'; });
+  assert.equal(m(p, ['lock-tests', 'tests/**']).code, 0);
+  write(p, '.murba/handoff/test-write.md', 'x');
+  assert.equal(m(p, ['phase', 'build']).code, 0);
+  assert.equal(m(p, ['lock-tests', 'tests/**']).code, 2);
+  write(p, '.murba/handoff/build.md', 'x');
+  write(p, 'tests/a.test.js', 'weakened');
+  const r = m(p, ['phase', 'evaluate']);
+  assert.equal(r.code, 2); assert.match(r.err, /TESTS_CHANGED/);
+  write(p, 'tests/a.test.js', 'a');
+  assert.equal(m(p, ['phase', 'evaluate']).code, 0);
+});
+
+test('review#12: spec edited after approval blocks transitions and shows in report', () => {
+  const p = tmpProj(); toApprove(p); m(p, ['approve']);
+  write(p, '.murba/spec.md', SPEC + '\n추가 문장\n');
+  const r = m(p, ['phase', 'setup']);
+  assert.equal(r.code, 2); assert.match(r.err, /SPEC_EDITED/);
+  assert.equal(m(p, ['report']).code, 0);
+  assert.match(fs.readFileSync(path.join(p, '.murba/report.md'), 'utf8'), /SPEC_EDITED/);
+  write(p, '.murba/spec.md', SPEC);
+  assert.equal(m(p, ['phase', 'setup']).code, 0);
 });

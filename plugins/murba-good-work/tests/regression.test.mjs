@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { tmpProj, runHook, bash, sub, isDeny } from './helpers.mjs';
 import { bashWriteTargets } from '../scripts/lib/patterns.mjs';
 
@@ -30,6 +31,7 @@ test('R2 lock-tests includes .murba/hidden', () => {
   const proj = tmpProj();
   fs.mkdirSync(path.join(proj, '.murba', 'hidden'), { recursive: true });
   fs.writeFileSync(path.join(proj, '.murba', 'hidden', 'h.test.js'), 'x');
+  setState(proj, s => { s.phase = 'test-write'; });
   const bin = path.resolve(import.meta.dirname, '..', 'bin', 'murba');
   const out = execFileSync('node', [bin, 'lock-tests', '.murba/hidden/*.test.js'], { cwd: proj, env: { ...process.env, CLAUDE_PROJECT_DIR: proj }, encoding: 'utf8' });
   assert.match(out, /\.murba\/hidden\/h\.test\.js/);
@@ -40,7 +42,10 @@ import { murbaCli, setState, readState as rs, write, fixture, isBlock } from './
 
 function projAt(phase, mutate = () => {}) {
   const p = tmpProj();
-  setState(p, s => { s.phase = phase; mutate(s); });
+  write(p, 'tests/locked.test.js', 'locked');
+  // 승인 후 단계는 승인 + 테스트 잠금이 전제(gateEntry)
+  const approved = !['triage', 'grill', 'spec-review', 'revise', 'approve'].includes(phase);
+  setState(p, s => { s.phase = phase; if (approved) { s.approved = true; s.test_hashes = { 'tests/locked.test.js': createHash('sha256').update('locked').digest('hex') }; } mutate(s); });
   return p;
 }
 function acState(s, ids, extra = {}) {

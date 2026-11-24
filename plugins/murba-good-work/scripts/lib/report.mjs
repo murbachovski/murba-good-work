@@ -1,7 +1,7 @@
 // Deterministic report generator: .murba state/events/decisions → report.md + report.html (no LLM).
 import fs from 'node:fs';
 import path from 'node:path';
-import { MACHINE, readState, readEvents, readDecisions, readJsonFile, murbaDir, lastVerdict, nonHeldAcs, missingRequires } from './core.mjs';
+import { MACHINE, readState, readEvents, readDecisions, readJsonFile, murbaDir, lastVerdict, nonHeldAcs, missingRequires, sha256File } from './core.mjs';
 
 const ICON = { VERIFIED: '✅', NOT_VERIFIED: '❌', INCONCLUSIVE: '⚠️', HELD: '⏸', NONE: '⚠️' };
 const cell = s => String(s ?? '').replace(/\|/g, '\\|').replace(/\n+/g, ' ');
@@ -43,7 +43,9 @@ export function buildMarkdown(proj) {
   L.push(`- **결정 기록**: ${dec.length}건 (사용자 확인 필요 ${dec.filter(d => ['user-direction', 'irreversible'].includes(d.class)).length}건)`, '');
 
   L.push('## 먼저 볼 것', '| 구분 | 내용 |', '|---|---|');
-  const failItems = [...failed.map(id => `${id} ${acStatus(id)}${st.ac[id].hold_reason ? `(${st.ac[id].hold_reason})` : ''}`), ...skipped.map(s => `생략 ${s}`)];
+  const specP = path.join(murbaDir(proj), 'spec.md');
+  const specEdited = st.approved && st.spec_hash && (!fs.existsSync(specP) || sha256File(specP) !== st.spec_hash);
+  const failItems = [...(specEdited ? ['SPEC_EDITED: 승인 후 기획서가 바뀜'] : []), ...failed.map(id => `${id} ${acStatus(id)}${st.ac[id].hold_reason ? `(${st.ac[id].hold_reason})` : ''}`), ...skipped.map(s => `생략 ${s}`)];
   L.push(`| ❌ 실패·생략 | ${cell(failItems.join(', ') || '없음')} |`);
   const unv = [...unverified.map(id => `${id} 최종 판정 없음`), ...flaky.map(f => `flaky ${f.test || ''}`), ...tampered.map(t => `${t.kind}`)];
   L.push(`| ⚠️ 미검증 | ${cell(unv.join(', ') || '없음')} |`);

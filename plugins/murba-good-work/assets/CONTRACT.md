@@ -24,23 +24,23 @@
 | `report.md`, `report.html` | `murba report` | 보고서 |
 | `disable` | 사람만 | 있으면 모든 hook no-op (차단 메시지에 언급 금지) |
 
-## `murba` CLI (`P/bin/murba`, Bash에서 PATH로 실행)
+## `murba` CLI (`P/bin/murba` → `P/scripts/murba-cli.mjs`, Bash에서 PATH로 실행)
 종료 코드: 0 성공, 1 사용 오류, 2 전이 거부/조건 미충족, 3 상한 도달.
 | 명령 | 동작 |
 |---|---|
 | `murba init [--headless] [--auto-approve]` | `.murba/` 생성, state 초기화(phase=triage), `.gitignore`에 `.murba/` 추가 |
 | `murba status [--json]` | phase, 다음 가능 단계, 남은 조건, AC 요약 |
-| `murba phase <next>` | 현재 phase의 requires 확인 → 전이표 확인 → 기록. `setup` 진입 시 `auto=true` |
-| `murba phase <target> --skip "<사유>"` | 기본 순서(`chain`)상 앞의 단계로 건너뜀. 지나간 단계는 `state.skipped[단계]=사유`로 기록하고 requires 검사 안 함. `report` 너머로는 불가. `approve` 생략은 investigation 또는 AC 없음일 때만. 보고서에 ⏸ 행 |
-| `murba ac sync` | spec.md의 AC 줄을 파싱해 state.ac 갱신(approve 이후엔 거부: ACCEPTANCE_EDITED) |
+| `murba phase <next>` | 현재 phase의 requires 확인 → 전이표 확인 → 기록. `setup` 진입 시 `auto=true`. build·evaluate·fix·qa·browser 진입은 승인 + 테스트 잠금 필요. 승인 후 spec.md가 바뀌었으면 `SPEC_EDITED`(종료 코드 2). build·fix·evaluate·qa를 떠날 때 고정 테스트가 바뀌었으면 `TESTS_CHANGED`(종료 코드 2) |
+| `murba phase <target> --skip "<사유>"` | 기본 순서(`chain`)상 앞의 단계로 건너뜀. 지나간 단계는 `state.skipped[단계]=사유`로 기록하고 requires 검사 안 함. `report` 너머로는 불가. 승인 없이 `approve`를 건너뛰는 것은 investigation이거나 목표가 `report`일 때만. 승인 후 단계 진입 조건은 생략으로도 못 넘는다. 보고서에 ⏸ 행 |
+| `murba ac sync` | spec.md의 AC 줄을 파싱해 state.ac 갱신(승인 후 변경은 거부: ACCEPTANCE_EDITED. 승인 없이 approve 뒤 단계에 있으면 거부) |
 | `murba ac next` | 선행 AC(`[after:AC-xxx]`)가 모두 VERIFIED/보류인 다음 미완료 AC를 current_ac로 지정. 없으면 종료 코드 2(남은 AC가 선행 미충족이면 그 목록 출력). current_ac=null이면 `@current_ac_verdict`는 보류 안 된 모든 AC에 판정이 있을 때 충족 |
 | `murba ac unhold <ID>` | 보류 해제 |
 | `murba ac verdict <ID> <VERIFIED\|NOT_VERIFIED\|INCONCLUSIVE> --sha <sha> [--evidence <path>] [--final]` | 판정 기록. VERIFIED면 last_pass_sha 갱신 |
 | `murba ac hold <ID> --reason <r>` | 보류(보고서에 ❌). `--final VERIFIED` 판정이 오면 자동 해제(`unheld_by_final`) |
 | `murba phase fix --ac <ID>` (qa에서) | 최종 판정이 VERIFIED 아닌 AC를 다시 수정. current_ac=ID. 수정 상한이면 종료 코드 3 |
 | `murba fix-round <ID>` | fix_rounds+1, 3 초과 시 종료 코드 3 |
-| `murba approve` | spec_hash 고정, approved=true. headless는 `--auto-approve`로 init된 경우만 |
-| `murba lock-tests <glob...>` | 테스트 파일 sha256을 test_hashes에 기록 |
+| `murba approve` | spec_hash 고정, approved=true. headless는 init 때 사전 승인(`--auto-approve` 또는 `MURBA_HEADLESS=1`)이 기록된 경우만(승인 시점 환경변수는 보지 않음) |
+| `murba lock-tests <glob...>` | 테스트 파일 sha256을 test_hashes에 기록. setup·test-write 단계에서만 |
 | `murba check-tests` | 해시 비교, 바뀐 파일 있으면 종료 코드 2 + 목록 |
 | `murba decide <mechanical\|taste\|user-direction\|irreversible> "<결정>" --why "<이유>" [--cost "<틀렸을 때 비용>"] [--evidence <p>]` | decisions.tsv 추가 |
 | `murba handoff <phase>` | stdin을 handoff/<phase>.md로 저장 |

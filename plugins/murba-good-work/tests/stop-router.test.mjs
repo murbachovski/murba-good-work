@@ -99,3 +99,11 @@ test('router: no .murba → silent', () => {
   const p = tmpProj({ murba: false });
   assert.equal(runHook('router', fixture('SessionStart-0.json', { cwd: p }), p).out, '');
 });
+
+test('review#13: stop cap exhaustion is recorded once, not on every Stop', () => {
+  const p = autoProj('build');
+  setState(p, s => { s.counters.stop = { build: 3 }; s.counters.stop_total = 3; });
+  for (let i = 0; i < 4; i++) { const r = runHook('stop-gate', stopInput(p), p); assert.ok(!isBlock(r)); }
+  const rows = fs.readFileSync(path.join(p, '.murba/decisions.tsv'), 'utf8').trim().split('\n').filter(l => /상한 도달/.test(l));
+  assert.equal(rows.length, 1);
+});
