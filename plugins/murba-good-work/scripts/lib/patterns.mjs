@@ -717,40 +717,46 @@ function publishDeploy(c0, w) {
   return null;
 }
 
-// Files `sed -i` edits (getopt-style): GNU `sed -i 's/a/b/' f`, BSD `sed -i '' 's/a/b/' f` / `sed -i .bak …`, combined flags
-// (`-Ei`, `-ni`, `-i.bak`, `-es/a/b/`), `-e`/`-f` scripts (then every operand is a file), `-l N`, long options, `--`.
-// A dot word after `-i` once the script is known (`sed -e x -i .mocharc.yml`) is a file for GNU (options are reordered) → counted.
+// Files `sed -i` edits. Two passes, because GNU permutes options: a `-e`/`-f` script anywhere (`sed -i f -e x`) makes every
+// operand a file; otherwise the first operand is the script. BSD `sed -i '' …` / `sed -i .bak …`: the word after a bare `-i` is a
+// suffix unless an operand came before it (`sed 's/a/b/' -i .mocharc.yml`: GNU edits that file) or a `-e`/`-f` script exists.
+// `-l N` / `--line-length N` take the next word only when it is a number (BSD `-l` takes no argument).
 const SED_DOT = /^\.[\w.~-]*$/;
 export const sedInPlace = w => w.slice(1).some(t => /^--in(-(p(l(a(ce?)?)?)?)?)?(=|$)/.test(t) || /^-[a-dg-hj-zA-HJ-Z]*[iI]/.test(t));
 export function sedFiles(w) {
-  const files = []; let script = false, opts = true;
+  const items = []; let scriptOpt = false, opts = true;
+  const num = x => /^\d+$/.test(x ?? '');
   for (let i = 1; i < w.length; i++) {
     const t = w[i];
     if (opts && t === '--') { opts = false; continue; }
     if (opts && t.startsWith('--')) {
-      const [name, val] = [t.split('=')[0], t.includes('=')];
+      const name = t.split('=')[0], val = t.includes('=');
       const is = (full, min) => name.length >= min && full.startsWith(name); // GNU accepts unique prefixes (--expr)
-      if (is('--expression', 3) || is('--file', 4)) { script = true; if (!val) i++; }
-      else if (is('--line-length', 3) && !val) i++;
+      if (is('--expression', 3) || is('--file', 4)) { scriptOpt = true; if (!val) i++; }
+      else if (is('--line-length', 3) && !val && num(w[i + 1])) i++;
       continue;
     }
     if (opts && t.startsWith('-') && t.length > 1) {
       for (let k = 1; k < t.length; k++) {
         const c = t[k], rest = t.slice(k + 1);
-        if (c === 'e' || c === 'f') { script = true; if (!rest) i++; break; }
-        if (c === 'l') { if (!rest) i++; break; }
+        if (c === 'e' || c === 'f') { scriptOpt = true; if (!rest) i++; break; }
+        if (c === 'l') { if (!rest && num(w[i + 1])) i++; break; }
         if (c === 'i' || c === 'I') {
           if (rest) break; // attached suffix (-i.bak, -ie)
           const n = w[i + 1];
-          if (n === '') i++;
-          else if (n !== undefined && SED_DOT.test(n)) { if (script) files.push(n); i++; }
+          if (n === '' || (n !== undefined && SED_DOT.test(n))) { items.push({ suffix: n }); i++; }
           break;
         }
       }
       continue;
     }
-    if (!script) { script = true; continue; }
-    files.push(t);
+    items.push({ operand: t });
+  }
+  const files = []; let seenOperand = false;
+  for (const it of items) {
+    if ('suffix' in it) { if (it.suffix && (scriptOpt || seenOperand)) files.push(it.suffix); continue; }
+    if (!scriptOpt && !seenOperand) { seenOperand = true; continue; } // the script
+    seenOperand = true; files.push(it.operand);
   }
   return files;
 }
