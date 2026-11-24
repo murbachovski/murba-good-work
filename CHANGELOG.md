@@ -14,8 +14,9 @@
 - 두 소스 변경 게이트: `assume-unchanged`·`skip-worktree` 표시된 추적 파일도 내용 비교
 - guard: murba 실행 중(done 전) `ScheduleWakeup`·`CronCreate` 거부(t093에서 서브에이전트 대기에 예약 호출 4회). hook matcher에 추가
 ### 검증
-- 테스트 227개 중 226 통과, 1 건너뜀(로컬 rg). 변경마다 되돌린 뮤테이션 8종에서 새 테스트 실패 확인
-- 독립 리뷰 1회: 차단 2건(자기 무시 `.gitignore`, init 전 `.gitignore` 오탐)과 중요 3건 반영
+- 상위 폴더 `.gitignore`(모노레포)도 비교, guard가 승인 전 `../.gitignore` 쓰기 거부. 도구 캐시·venv(`pyvenv.cfg`·`CACHEDIR.TAG`) 안 `.gitignore`는 제외
+- 테스트 232개 중 231 통과, 1 건너뜀(로컬 rg). 변경마다 되돌린 뮤테이션 14종에서 새 테스트 실패 확인
+- 독립 리뷰 2회: 1차 차단 2건(자기 무시 `.gitignore`, init 전 `.gitignore` 오탐)·중요 3건, 2차 차단 2건(추적 폴더 안 새 `.gitignore`, 도구 캐시 오탐)·중요 3건 반영
 
 ## [플러그인 0.1.2] - 2026-11-24
 ### 바뀜 ([ADR 0005](docs/decisions/0005-skipped-runs-and-baseline.md))

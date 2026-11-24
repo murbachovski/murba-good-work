@@ -86,3 +86,62 @@ test('v0.1.3 r1: scheduled calls are allowed once the murba run is done', () => 
   const r = runHook('guard', tool(p, 'ScheduleWakeup', { delaySeconds: 60, prompt: 'x', reason: 'user /loop' }), p);
   assert.equal(r.code, 0); assert.equal(isDeny(r), false);
 });
+
+// ---- PR #14 review round 2 ----
+test('v0.1.3 r2: a new .gitignore inside a tracked folder named build/out is seen', () => {
+  const p = tmpProj({ murba: false });
+  write(p, 'build/tool.js', 't\n'); write(p, 'src/out/x.js', 'x\n'); git(p, 'add', '-A'); git(p, 'commit', '-qm', 'seed');
+  m(p, ['init']); inv(p);
+  write(p, 'build/.gitignore', 'hidden.js\n'); write(p, 'build/hidden.js', 'h\n');
+  write(p, 'src/out/.gitignore', '*\n'); write(p, 'src/out/hidden.js', 'h\n');
+  const r = skip(p); assert.equal(r.code, 2); assert.match(r.err, /build\/\.gitignore/); assert.match(r.err, /src\/out\/\.gitignore/);
+});
+
+test('v0.1.3 r2: tool caches and venvs with their own .gitignore are not changes (before or after init, deleted or not)', () => {
+  const p = seeded();
+  write(p, '.mypy_cache/.gitignore', '*\n'); write(p, '.mypy_cache/CACHEDIR.TAG', 'Signature: 8a477f597d28d172789f06886806bc55\n'); // existed before init
+  m(p, ['init']); inv(p);
+  write(p, '.ruff_cache/.gitignore', '*\n'); write(p, '.ruff_cache/CACHEDIR.TAG', 'x');
+  write(p, 'env/pyvenv.cfg', 'home = /usr/bin\n'); write(p, 'env/.gitignore', '*\n');
+  write(p, '.tox/py311/.gitignore', '*\n');
+  fs.rmSync(path.join(p, '.mypy_cache'), { recursive: true }); // --cache-clear
+  const r = skip(p); assert.equal(r.code, 0, r.err);
+});
+
+test('v0.1.3 r2: monorepo parent .gitignore cannot hide project files; guard protects it before approval', () => {
+  const root = tmpProj({ murba: false });
+  write(root, 'pkg/src/a.js', 'a\n'); write(root, '.gitignore', 'node_modules/\n'); git(root, 'add', '-A'); git(root, 'commit', '-qm', 'seed');
+  const p = path.join(root, 'pkg');
+  m(p, ['init']); inv(p);
+  fs.appendFileSync(path.join(root, '.gitignore'), 'pkg/src/hidden.js\n'); write(p, 'src/hidden.js', 'h\n');
+  const r = skip(p); assert.equal(r.code, 2); assert.match(r.err, /\.\.\/\.gitignore/);
+  const q = tmpProj({ murba: false });
+  write(q, 'pkg/src/a.js', 'a\n'); git(q, 'add', '-A'); git(q, 'commit', '-qm', 'seed');
+  const qp = path.join(q, 'pkg'); m(qp, ['init']);
+  write(qp, '.murba/run-plan.json', JSON.stringify({ task_type: 'bug-fix' })); m(qp, ['phase', 'grill']);
+  const g = runHook('guard', tool(qp, 'Bash', { command: 'echo pkg/src/hidden.js >> ../.gitignore', description: 't' }), qp);
+  assert.ok(isDeny(g), g.out);
+});
+
+test('v0.1.3 r2: flagged symlinks compare link text; many flagged files stay fast', () => {
+  const p = seeded();
+  fs.symlinkSync('id.js', path.join(p, 'src/flink.js')); fs.mkdirSync(path.join(p, 'lib')); fs.symlinkSync('../src', path.join(p, 'lib/dlink'));
+  for (let i = 0; i < 2000; i++) write(p, `data/f${i}.txt`, `${i}\n`);
+  git(p, 'add', '-A'); git(p, 'commit', '-qm', 'links');
+  m(p, ['init']); inv(p);
+  git(p, 'update-index', '--assume-unchanged', 'src/flink.js', 'lib/dlink');
+  git(p, 'ls-files', '-z'); spawnSync('sh', ['-c', 'git ls-files data | xargs git update-index --assume-unchanged'], { cwd: p });
+  const t0 = Date.now(); const r = skip(p);
+  assert.equal(r.code, 0, r.err); assert.ok(Date.now() - t0 < 10000, `took ${Date.now() - t0}ms`);
+});
+
+test('v0.1.3 r2: a new untracked folder whose own .gitignore ignores everything is still seen; parent rules still exempt', () => {
+  const p = seeded(); m(p, ['init']); inv(p);
+  write(p, 'newmod/.gitignore', '*\n'); write(p, 'newmod/x.js', 'x\n');
+  const r = skip(p); assert.equal(r.code, 2); assert.match(r.err, /newmod\/\.gitignore/);
+  const q = tmpProj({ murba: false });
+  write(q, 'src/id.js', 'x\n'); write(q, '.gitignore', 'gen/\n'); git(q, 'add', '-A'); git(q, 'commit', '-qm', 'seed');
+  m(q, ['init']); inv(q);
+  write(q, 'gen/.gitignore', '*\n'); // inside a folder the user already ignores
+  assert.equal(skip(q).code, 0);
+});

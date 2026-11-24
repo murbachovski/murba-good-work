@@ -30,7 +30,8 @@ const ask = reason => decide('ask', reason);
 const taskTypeOf = (st, proj) => st.task_type || runPlanType(proj);
 const preApprovalActive = (st, proj) => { const t = taskTypeOf(st, proj); return !!st.phase && st.phase !== 'done' && !st.approved && !!t && t !== 'investigation'; };
 // a project path the pre-approval rule protects: inside the project, not .murba/ (.gitignore too: an ignore line can hide a new file from the source gate)
-const outsideMurba = rel => rel !== undefined && rel !== null && !path.isAbsolute(rel) && !/^\.\.(\/|$)/.test(rel) && !relIs(rel, '.murba') && !relUnder(rel, '.murba');
+// ../.gitignore (monorepo parent folders) is protected too: it can hide project files
+const outsideMurba = rel => rel !== undefined && rel !== null && ((!path.isAbsolute(rel) && !/^\.\.(\/|$)/.test(rel) && !relIs(rel, '.murba') && !relUnder(rel, '.murba')) || /^(\.\.\/)+\.gitignore$/.test(rel));
 // Writes a Bash command makes, per segment (cd-aware). git arguments count only in the git segment itself:
 // checkout/restore paths are writes, branch names are not; apply/am/patch and formatters write (targets may be unknown).
 function preApprovalBashWrites(cmd, proj) {

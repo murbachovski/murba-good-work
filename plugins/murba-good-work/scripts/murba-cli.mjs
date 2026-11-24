@@ -1,6 +1,7 @@
 // murba — ledger CLI for the murba-good-work pipeline. Only this CLI changes .murba/state.json.
 // Exit codes: 0 ok, 1 usage error, 2 transition refused / condition unmet, 3 limit reached.
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -73,34 +74,61 @@ const CODE_EXT = /\.(m?[jt]sx?|cjs|py|go|rb|rs|java|kt|kts|scala|php|html?|css|s
 // 경로는 프로젝트 폴더 기준(--relative: 모노레포 하위 폴더), 비 ASCII 이름은 그대로(-z는 따옴표·8진수 이스케이프를 하지 않음), 이름 바꾸기는 삭제+추가로(--no-renames)
 const gitOut = a => execFileSync('git', a, { cwd: proj, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 512 * 1024 * 1024 });
 const gitList = a => gitOut(a).split('\0').filter(Boolean);
-// 추적 안 된 파일: 통째로 추적 안 된 폴더(--directory로 접힘) 중 이름이 의존성 폴더인 것만 뺀다(git이 그 안을 나열하지 않음).
-// 추적 중인 파일이 있는 폴더 안의 새 파일은 폴더 이름과 무관하게 소스다
-const ARTIFACT_PATHSPEC = ARTIFACT_NAMES.map(n => `:(exclude,glob)**/${n}/**`);
+// 버릴 수 있는 폴더: 이름이 의존성·캐시 폴더이거나 도구 표식(venv의 pyvenv.cfg, mypy·ruff 등 캐시의 CACHEDIR.TAG)이 있는 폴더.
+// 추적 파일이 있는 폴더는 이름과 무관하게 소스다
+const CACHE_NAMES = [...ARTIFACT_NAMES, '.mypy_cache', '.ruff_cache', '.tox', '.nox', '.gradle', '.parcel-cache'];
+const ARTIFACT_PATHSPEC = CACHE_NAMES.map(n => `:(exclude,glob)**/${n}/**`);
+const memo = (fn, m = new Map()) => k => (m.has(k) ? m.get(k) : (m.set(k, fn(k)), m.get(k)));
+const isDisposableDir = memo(d => CACHE_NAMES.includes(path.basename(d)) || fs.existsSync(path.join(proj, d, 'pyvenv.cfg')) || fs.existsSync(path.join(proj, d, 'CACHEDIR.TAG')));
+let trackedDirs = null;
+const isTrackedDir = d => {
+  if (!trackedDirs) { trackedDirs = new Set(); for (const f of gitList(['ls-files', '-z'])) for (let p = path.posix.dirname(f); p !== '.' && !trackedDirs.has(p); p = path.posix.dirname(p)) trackedDirs.add(p); }
+  return trackedDirs.has(d);
+};
+// 폴더가 바깥 무시 규칙(상위 .gitignore 등)으로 이미 무시되는가. 그 안의 .gitignore는 숨길 것이 없다
+// 경로 끝에 '/'를 붙이면 그 폴더 자신의 .gitignore('*')까지 적용되므로 붙이지 않는다(폴더 규칙 'x/'는 실제 폴더라 그대로 맞음)
+const dirIgnored = memo(d => { try { gitOut(['check-ignore', '-q', '--', d]); return true; } catch { return false; } });
+// 추적 안 된 파일: 통째로 추적 안 된 폴더(--directory로 접힘) 중 버릴 수 있는 폴더만 뺀다
 function untrackedFiles() {
   const out = [];
   for (const e of gitList(['ls-files', '--others', '--exclude-standard', '--directory', '-z'])) {
     if (!e.endsWith('/')) { out.push(e); continue; }
-    if (ARTIFACT_NAMES.includes(path.basename(e.slice(0, -1)))) continue;
+    if (isDisposableDir(e.slice(0, -1))) continue;
     out.push(...gitList(['ls-files', '--others', '--exclude-standard', '-z', '--', e, ...ARTIFACT_PATHSPEC]));
   }
   return out;
 }
-// git이 '안 바뀐 것'으로 보게 표시한 추적 파일(assume-unchanged `h`, skip-worktree `S`) 중 작업 트리 내용이 인덱스와 다른 것
+// git이 '안 바뀐 것'으로 보게 표시한 추적 파일(assume-unchanged `h`, skip-worktree `S`) 중 작업 트리가 인덱스와 다른 것.
+// 한 번에 나열하고(ls-files -v -s) 일반 파일은 hash-object --stdin-paths 한 번으로(필터 적용), 링크는 링크 텍스트로 비교
+const gitBlobSha = buf => crypto.createHash('sha1').update(`blob ${buf.length}\0`).update(buf).digest('hex');
 function flaggedChanged() {
-  const out = [];
-  for (const e of gitList(['ls-files', '-v', '-z'])) {
-    if (!/^[hS] /.test(e)) continue;
-    const f = e.slice(2);
-    if (!fs.existsSync(path.join(proj, f))) continue; // sparse checkout: 파일 없음
-    const blob = gitOut(['ls-files', '-s', '--', f]).split(/\s+/)[1];
-    if (blob && gitOut(['hash-object', '--', f]).trim() !== blob) out.push(f);
+  const reg = [], out = [];
+  for (const e of gitList(['ls-files', '-v', '-s', '-z'])) {
+    const m = /^([hS]) (\d{6}) ([0-9a-f]+) \d\t([\s\S]*)$/.exec(e);
+    if (!m) continue;
+    const [, , mode, blob, f] = m;
+    let lst; try { lst = fs.lstatSync(path.join(proj, f)); } catch { continue; } // sparse checkout: 파일 없음
+    if (mode === '160000' || lst.isDirectory()) continue;
+    if (mode === '120000') { if (!lst.isSymbolicLink() || gitBlobSha(Buffer.from(fs.readlinkSync(path.join(proj, f)))) !== blob) out.push(f); continue; }
+    if (lst.isSymbolicLink()) { out.push(f); continue; }
+    reg.push([f, blob]);
+  }
+  if (reg.length) {
+    const hs = execFileSync('git', ['hash-object', '--stdin-paths'], { cwd: proj, input: reg.map(r => r[0]).join('\n') + '\n', encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], maxBuffer: 512 * 1024 * 1024 }).trim().split('\n');
+    reg.forEach(([f, b], i) => { if (hs[i] !== b) out.push(f); });
   }
   return out;
 }
 const changedSince = rev => [...gitList(['diff', '--name-only', '--relative', '--no-renames', '-z', rev]), ...untrackedFiles(), ...flaggedChanged()];
-// .gitignore 파일: 무시 줄로 자기 자신까지 숨길 수 있어 --exclude-standard 없이 따로 나열
+// .gitignore 파일: 무시 줄로 자기 자신까지 숨길 수 있어 --exclude-standard 없이 따로 나열.
+// 새 .gitignore는 이미 무시된 폴더 안이거나 추적 파일 없는 버릴 수 있는 폴더 안(도구가 만든 캐시·venv)이면 뺀다
 const isIgnoreFile = f => /(^|\/)\.gitignore$/.test(f) && !f.startsWith('.murba/');
-const ignoreFilesChanged = rev => [...gitList(['diff', '--name-only', '--relative', '--no-renames', '-z', rev, '--', ':(glob)**/.gitignore']), ...gitList(['ls-files', '--others', '-z', '--', ':(glob)**/.gitignore', ':(exclude).murba/**', ...ARTIFACT_PATHSPEC])].filter(isIgnoreFile);
+const newIgnoreFileMatters = f => { for (let d = path.posix.dirname(f); d !== '.'; d = path.posix.dirname(d)) if (dirIgnored(d) || (!isTrackedDir(d) && isDisposableDir(d))) return false; return true; };
+const ignoreFilesChanged = rev => [...gitList(['diff', '--name-only', '--relative', '--no-renames', '-z', rev, '--', ':(glob)**/.gitignore']), ...gitList(['ls-files', '--others', '-z', '--', ':(glob)**/.gitignore', ':(exclude).murba/**']).filter(newIgnoreFileMatters)].filter(isIgnoreFile);
+// 프로젝트가 저장소 하위 폴더면 위쪽 폴더의 .gitignore(../.gitignore …)도 프로젝트 파일을 숨길 수 있다: init 때 내용 해시를 기록해 비교
+function outerIgnoreFiles() {
+  try { const up = gitOut(['rev-parse', '--show-cdup']).trim(); const n = up ? up.split('/').filter(Boolean).length : 0; return Array.from({ length: n }, (_, i) => '../'.repeat(i + 1) + '.gitignore'); } catch { return []; }
+}
 const fileHash = f => { try { return sha256File(path.join(proj, f)); } catch { return null; } };
 const gateFile = (f, globs) => !f.startsWith('.murba/') && f !== '.gitignore' && !isTestPath(f) && !CONFIG_RE.test(f) && (matchAny(f, globs) || CODE_EXT.test(f));
 // init 때 이미 바뀌어 있던 구현 파일(추적 파일의 변경·삭제, 추적 안 된 파일)과 그 내용 해시(삭제면 null). 사용자가 하던 작업을 게이트가 오탐하지 않게 한다
@@ -143,6 +171,7 @@ function skippedRunGate(st, what) {
   const base = st.base_dirty || {};
   const same = f => Object.prototype.hasOwnProperty.call(base, f) && base[f] === fileHash(f);
   try { ch = [...ch, ...[...new Set([...ignoreFilesChanged(st.base_sha), ...Object.keys(base).filter(isIgnoreFile)])].filter(f => !ch.includes(f) && !same(f))]; } catch { return gateUnavailable(st, what); }
+  for (const [f, h] of Object.entries(st.base_outer_ignore || {})) if (fileHash(f) !== h) ch.push(f);
   if (ch.length) { appendEvent(proj, 'source_changed_in_skipped_run', { what, files: ch }); fail(2, `SOURCE_CHANGED_IN_SKIPPED_RUN: ${ch.join(', ')} — build·평가를 건너뛴 실행(조사·위험 요청 보고)은 검증되지 않은 구현 파일 변경을 남길 수 없다. 이 변경을 되돌리거나(재현 스크립트는 프로젝트 밖으로) 다시 ${what}`); }
 }
 
@@ -200,6 +229,7 @@ const cmds = {
       // 기준선은 init 시점의 HEAD와 작업 중 변경. 재초기화(--force)는 새 실행이라 다시 잡는다(guard가 사람 확인을 요구하고 결정 큐에 남는다)
       base_sha: (() => { try { return gitOut(['rev-parse', 'HEAD']).trim() || null; } catch { return null; } })(),
       base_dirty: dirtyBaseline(DEFAULT_IMPL_GLOBS),
+      base_outer_ignore: Object.fromEntries(outerIgnoreFiles().map(f => [f, fileHash(f)])),
     };
     writeState(proj, st, { fresh: true });
     if (prev) {
