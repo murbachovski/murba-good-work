@@ -9,22 +9,23 @@
 
 ## [플러그인 0.1.1] - 2026-11-24
 ### 바뀜 ([ADR 0004](docs/decisions/0004-no-pipeline-skip-for-implementation.md))
-- 구현 작업은 파이프라인을 건너뛸 수 없음: approve를 지나는 생략은 조사 과제나 위험 요청(결정 큐에 irreversible)만
+- 구현 작업은 파이프라인을 건너뛸 수 없음: 모든 `--skip`은 triage를 떠날 때 원장에 고정한 과제 성격이 조사이거나 위험 요청(`risky`)일 때만. 결정 큐 기록은 생략을 열지 않음
+- 소스 변경 게이트: `murba approve`·`lock-tests`는 init 이후 구현 파일이 바뀌었으면 거부(`SOURCE_CHANGED_BEFORE_TESTS`)
 - 승인 전(triage~approve) 메인 세션의 `.murba/` 밖 쓰기 거부(조사 과제 제외, run-plan 작성 전은 미적용 — 미리 고친 코드는 test-write의 RED 확인에서 드러남)
 - 작은 작업도 AC 1~3개 최소 기획서로 진행, 사용자 산출물은 `.murba/` 밖에
-- spec-reviewer: brief·사전 답변의 명시 요구 → AC 대응 검사(빠지면 막는 지적)
+- spec-reviewer: brief·사전 답변의 명시 요구 → AC 대응 검사(빠지면 막는 지적, 프롬프트 수준)
 - guard 비가역 목록: `git reset --hard`, `git clean -f[d|x]`
 - `murba init`이 보고서 폴더를 미리 만듦, 서브에이전트 호출에 `run_in_background`를 넘기지 않음
 ### 검증
 - 독립 리뷰 2회(1차: 자연스러운 생략 우회 8건 → 구조적 수정: 과제 성격 고정, 소스 변경 게이트). 리뷰어 재현 스크립트로 확인
 - 회귀 세트 11개(`70aec38`, 사용자 전역 설정 제외 격리 실행): 11/11, guard 차단 0, 비용 $10.71
 - 관찰: t093(위험 요청)은 안전한 재작성까지 하지 않고 확인을 요청하며 종료. t057은 test-writer의 기대 행 수 오류(1941 vs 1942)로 AC 3개 보류(조작 없음, `lock-tests --amend` 미사용)
-### 이전 Unreleased 항목
-### 바뀜
+### 함께 들어간 것(v0.1.0 이후 main)
 - guard: 프로젝트가 `/tmp` 아래일 때(Linux) 임시 폴더 삭제 오탐 수정, 임시 폴더 안 링크가 가리키는 실제 경로(예: 홈)로 재귀 삭제 판정
-- 플러그인 아이콘, GitHub Actions CI(Node 18·20·22 + validate), 테스트 190개(리뷰어 재현 입력 회귀 포함)
-### 검증 상태
-- 단위 테스트·CI만 통과. 시나리오 회귀 세트(과제 11개)는 v0.1.1 변경과 함께 1회 실행 예정(사용자 결정 2026-11-24). marketplace 설치는 기본 브랜치(main)를 받으므로 v0.1.0과 다를 수 있음
+- 플러그인 아이콘, GitHub Actions CI(Node 18·20·22 + validate), 리뷰어 재현 입력 회귀 테스트
+### 알려진 문제
+- spec-reviewer의 요구→AC 대응 검사는 프롬프트 지시이고 CLI가 강제하지 않는다
+- triage 중 run-plan의 과제 성격을 스스로 조사·위험으로 적으면 생략이 열릴 수 있다(고정 전). init 전에 이미 고쳐 둔 파일도 소스 변경 게이트에 걸릴 수 있다 → v0.1.2 후보
 
 ## [플러그인 0.1.0] - 2026-11-24
 ### 추가

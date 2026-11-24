@@ -50,7 +50,7 @@
 - 쓰기 도구가 있는 서브에이전트(test-writer, builder)는 상세 보고를 `.murba/reports/<agent>/`에 쓴다. test-writer는 추가로 `.murba/hidden/`에 쓸 수 있다. evaluator·pr-reviewer는 Write를 갖되 guard가 자기 보고 경로(evaluator는 `.murba/evidence/` 포함)로 제한한다. 쓰기 도구가 없는 에이전트(triage, spec-reviewer)는 보고를 응답에 담고 **오케스트레이터가 받아서** `.murba/reports/<agent>/`에 기록한다
 - `run-plan.json`, handoff, `decisions.tsv`, `state.json`, 판정·증거 목록은 **오케스트레이터만** 쓴다
 - `BLOCKED`, `INCONCLUSIVE`, 예산 초과 → 해당 갈래는 결정 큐로, 나머지는 계속
-- 단계 생략은 `run-plan.json`에 `n/a: 사유`로만 가능
+- 단계 생략은 `murba phase <target> --skip "<사유>"`로만 가능하고, triage를 떠날 때 원장에 고정한 과제 성격이 조사(investigation)이거나 위험 요청(`risky`)일 때만 허용된다([ADR 0004](../decisions/0004-no-pipeline-skip-for-implementation.md)). 구현 작업은 작아도 AC 1~3개로 전 단계를 거친다
 - 매 단계 끝에 `.murba/handoff/<phase>.md`(목표·접근·완료·현재 실패·다음 1개 작업·근거 파일). Stop 게이트가 존재를 검사
 
 ## 3. 0단계: 작업 설계(triage)
