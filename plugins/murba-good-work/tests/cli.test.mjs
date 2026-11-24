@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { tmpProj, murbaCli as m, readState, write, setState } from './helpers.mjs';
 
@@ -218,7 +219,9 @@ test('review#2: --skip cannot bypass approval or test lock', () => {
 });
 
 test('review#6: launcher runs without ESM detection (Node 18/20 behaviour)', () => {
-  const r = spawnSync('node', ['--no-experimental-detect-module', path.join(import.meta.dirname, '..', 'bin', 'murba'), 'help'], { encoding: 'utf8' });
+  // Node 18 has no detection (and no flag); newer Node gets the flag to mimic it
+  const flags = process.allowedNodeEnvironmentFlags.has('--no-experimental-detect-module') ? ['--no-experimental-detect-module'] : [];
+  const r = spawnSync(process.execPath, [...flags, path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'murba'), 'help'], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /murba </);
 });

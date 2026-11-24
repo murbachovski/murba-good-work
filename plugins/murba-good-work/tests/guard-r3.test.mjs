@@ -148,3 +148,29 @@ test('G4: git history, docker volumes, unscoped DELETE/UPDATE, DB files, prisma 
   for (const c of ['rm -rf node_modules', 'find . -type d -name __pycache__ -exec rm -rf {} +', 'psql db -c "SELECT count(*) FROM drop_log"',
     'sqlite3 app.db .schema', 'psql -c "DELETE FROM users WHERE id=1"', 'psql -c "UPDATE users SET a=1 WHERE id=2"', 'docker compose down', 'git rm test/old.js', 'rm -rf ~/build']) allow(B(c), c);
 });
+
+test('temp-dir deletes when the project lives under /tmp (Linux): literal ok; globs, .., symlinks to home denied', async () => {
+  const fs = await import('node:fs'); const os = await import('node:os');
+  const { analyzeBash } = await import('../scripts/lib/patterns.mjs');
+  const proj = fs.mkdtempSync('/tmp/murba-linux-proj-');
+  const lnk = proj + '-lnk-home';
+  try { fs.symlinkSync(os.homedir(), lnk); } catch {}
+  try {
+    assert.equal(analyzeBash('rm -rf /tmp/some-cache-dir', proj), null);
+    for (const c of ['rm -rf /tmp', 'rm -rf ' + proj, 'rm -rf /tmp/murba-linux-proj-*', 'rm -rf /tmp/*/', 'rm -rf /tmp/.*', 'rm -rf node_modules/../../other', 'rm -rf ' + lnk + '/', 'rm -rf ' + lnk + '/*'])
+      assert.ok(analyzeBash(c, proj)?.deny, c + ' should be denied');
+  } finally { fs.rmSync(lnk, { force: true }); fs.rmSync(proj, { recursive: true, force: true }); }
+});
+
+test('symlink in /tmp pointing at home is judged by its real path (project outside tmp)', async () => {
+  const fs = await import('node:fs'); const os = await import('node:os'); const path = await import('node:path');
+  const { analyzeBash } = await import('../scripts/lib/patterns.mjs');
+  const proj = fs.mkdtempSync(path.join(os.homedir(), '.murba-proj-test-'));
+  const lnk = fs.mkdtempSync('/tmp/murba-lnk-') + '/home';
+  fs.symlinkSync(os.homedir(), lnk);
+  try {
+    for (const c of ['rm -rf ' + lnk + '/', 'rm -rf ' + lnk + '/*', 'find ' + lnk + ' -delete'])
+      assert.ok(analyzeBash(c, proj)?.deny, c + ' should be denied');
+    assert.equal(analyzeBash('rm -rf /tmp/plain-cache-dir', proj), null);
+  } finally { fs.rmSync(path.dirname(lnk), { recursive: true, force: true }); fs.rmSync(proj, { recursive: true, force: true }); }
+});

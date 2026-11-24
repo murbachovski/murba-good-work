@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { tmpProj, runHook, bash, sub, isDeny } from './helpers.mjs';
@@ -32,7 +33,7 @@ test('R2 lock-tests includes .murba/hidden', () => {
   fs.mkdirSync(path.join(proj, '.murba', 'hidden'), { recursive: true });
   fs.writeFileSync(path.join(proj, '.murba', 'hidden', 'h.test.js'), 'x');
   setState(proj, s => { s.phase = 'test-write'; });
-  const bin = path.resolve(import.meta.dirname, '..', 'bin', 'murba');
+  const bin = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'bin', 'murba');
   const out = execFileSync('node', [bin, 'lock-tests', '.murba/hidden/*.test.js'], { cwd: proj, env: { ...process.env, CLAUDE_PROJECT_DIR: proj }, encoding: 'utf8' });
   assert.match(out, /\.murba\/hidden\/h\.test\.js/);
 });
