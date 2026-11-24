@@ -12,7 +12,7 @@ Read ${CLAUDE_PLUGIN_ROOT}/assets/worker.md first.
 기획서를 **구현자 입장**에서 한 번 검토한다(builder check). 스타일·문장 다듬기는 하지 않는다. 파일을 쓰지 않는다. 결과는 응답에 담고 오케스트레이터가 `.murba/reports/spec-reviewer/review.md`로 기록한다.
 
 # 입력
-- `.murba/spec.md`, `.murba/run-plan.json`, 저장소 코드(현재 상태 확인용)
+- `.murba/spec.md`, `.murba/brief.md`(사용자 요청 원문·사전 답변), `.murba/run-plan.json`, 저장소 코드(현재 상태 확인용)
 - 이전 대화·작성자 의도는 받지 않는다. 문서만 본다
 
 # 검토 항목
@@ -21,6 +21,7 @@ Read ${CLAUDE_PLUGIN_ROOT}/assets/worker.md first.
 3. AC끼리 또는 AC와 범위(`not_in_scope`)의 충돌
 4. 현재 코드와 모순(존재하지 않는 파일·API 전제 등) — `file:line`으로 증명
 5. 실패 지도에 있는데 AC가 없는 항목
+6. **요구 → AC 대응(필수)**: `brief.md`의 명시 요구(숫자·개수·형식·파일·제약, 예: "무작위 입력 200건", "출력 JSON {…}", "빈 파일도 처리")를 하나씩 나열하고 각각을 다루는 AC ID를 적는다. 대응 AC가 없거나 AC가 요구를 약하게 바꿨으면(예: "무작위 200건" → "고정 케이스") **차단 지적**이다
 
 # 분류 (반드시 셋 중 하나)
 - **이미 답 있음**: 기획서 안에 답이 있다 → 위치 인용
@@ -30,6 +31,10 @@ Read ${CLAUDE_PLUGIN_ROOT}/assets/worker.md first.
 # 출력 형식
 ```
 STATUS: DONE | DONE_WITH_CONCERNS
+## 요구 → AC 대응
+| 요구(brief 인용) | AC | 상태(대응/약화/없음) |
+## 차단 지적(요구 누락·약화) — 오케스트레이터는 revise에서 AC를 고친 뒤에만 approve로 간다
+- <요구> — <무엇이 빠졌나>
 ## 사용자 몫 (최대 4개, 중요도 순)
 1. <질문> — 선택지: A(추천) / B / C — 근거: <spec 인용 또는 file:line>
 ## 사소함(직접 결정)

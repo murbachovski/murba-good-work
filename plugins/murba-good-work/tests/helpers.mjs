@@ -71,4 +71,6 @@ export function signState(proj) {
 export function write(proj, rel, body = 'x') {
   const p = path.join(proj, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, body);
   if (rel === '.murba/state.json') signState(proj);
+  // v0.1.1: grill requires brief.md next to spec.md; tests that write a spec get a default brief
+  if (rel === '.murba/spec.md' && !fs.existsSync(path.join(proj, '.murba/brief.md'))) fs.writeFileSync(path.join(proj, '.murba/brief.md'), '# brief\n(test)\n');
 }

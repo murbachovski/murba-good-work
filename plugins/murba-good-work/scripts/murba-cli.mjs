@@ -7,7 +7,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const here = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)));
 const core = await import(pathToFileURL(path.join(here, 'lib', 'core.mjs')).href);
 const { renderReport } = await import(pathToFileURL(path.join(here, 'lib', 'report.mjs')).href);
-const { globToRegex } = await import(pathToFileURL(path.join(here, 'lib', 'patterns.mjs')).href);
+const { globToRegex, isTestPath, matchAny } = await import(pathToFileURL(path.join(here, 'lib', 'patterns.mjs')).href);
+import { execFileSync } from 'node:child_process';
 const { CHAIN, MACHINE, projectDir, murbaDir, statePath, readState, updateState, appendEvent, appendDecision, DECISION_CLASSES, missingRequires, nextActionHint, lastVerdict, nonHeldAcs, sha256File, sha256Text, nowIso, pluginVersion, isHeadless, withLock, writeJsonAtomic, writeState, ledgerTampered } = core;
 
 const proj = projectDir(null);
@@ -58,6 +59,30 @@ function specEdited(st) {
   return !fs.existsSync(p) || sha256File(p) !== st.spec_hash;
 }
 // 모든 전이 공통 검사: 승인 후 기획서 변경, 고정 테스트 변경
+// 과제 성격(조사·위험 요청)은 triage를 떠날 때 원장에 고정한다. 이후 run-plan을 고쳐도 CLI는 원장 값만 본다
+function lockTaskFacts(st) {
+  if (st.task_type !== undefined) return;
+  const plan = core.readJsonFile(path.join(md, 'run-plan.json'), {});
+  st.task_type = typeof plan.task_type === 'string' ? plan.task_type : 'unknown';
+  st.risky = plan.risky === true;
+  appendEvent(proj, 'task_facts_locked', { task_type: st.task_type, risky: st.risky });
+}
+// init 이후 바뀐 구현 파일(테스트·설정·.murba·.gitignore 제외). git 저장소가 아니면 null
+const CONFIG_RE = /(^|\/)(package(-lock)?\.json|pnpm-lock\.yaml|yarn\.lock|tsconfig[^/]*\.json|[^/]*\.config\.[cm]?[jt]s|\.[a-z]+rc(\.[a-z]+)?|init\.sh|Makefile|pyproject\.toml|setup\.cfg|tox\.ini|requirements[^/]*\.txt)$/;
+const CODE_EXT = /\.(m?[jt]sx?|cjs|py|go|rb|rs|java|kt|php|html?|css|scss|vue|svelte|sql|sh)$/;
+function sourceChanges(st) {
+  if (!st.base_sha) return null;
+  const git = a => execFileSync('git', a, { cwd: proj, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  let files;
+  try { files = [...git(['diff', '--name-only', st.base_sha]).split('\n'), ...git(['ls-files', '--others', '--exclude-standard']).split('\n')]; } catch { return null; }
+  return [...new Set(files.filter(Boolean))].filter(f => !f.startsWith('.murba/') && f !== '.gitignore' && !isTestPath(f) && !CONFIG_RE.test(f) && (matchAny(f, st.impl_globs || []) || CODE_EXT.test(f)));
+}
+function sourceGate(st, what) {
+  const ch = sourceChanges(st);
+  if (ch === null) { appendEvent(proj, 'source_gate_skipped', { what, reason: st.base_sha ? 'git error' : 'not a git repo' }); return; }
+  if (ch.length) { appendEvent(proj, 'source_changed_before_tests', { what, files: ch }); fail(2, `SOURCE_CHANGED_BEFORE_TESTS: ${ch.join(', ')} — 테스트보다 먼저 구현 파일을 고쳤다. 이 수정을 직접 되돌린 뒤(테스트 먼저) 다시 ${what}`); }
+}
+
 function commonChecks(st, cur) {
   if (specEdited(st)) { appendEvent(proj, 'spec_edited', { phase: cur }); fail(2, 'SPEC_EDITED: 승인 후 .murba/spec.md가 바뀜 — 승인본으로 되돌린다'); }
   const bad = changedTests(st);
@@ -100,6 +125,7 @@ const cmds = {
     // 사전 승인은 처음 init에서만 정한다. 이전 원장에 사전 승인이 없었으면(또는 원장이 변조됐으면) 재초기화로 켤 수 없다
     if (prev && wantAuto && (!prev.auto_approve || ledgerTampered(proj))) fail(2, '재초기화 거부: 사전 승인 없던 실행을 재초기화로 자동 승인으로 바꿀 수 없다(사람 승인 우회)');
     for (const d of ['handoff', 'reports', 'hidden', 'evidence', 'logs']) fs.mkdirSync(path.join(md, d), { recursive: true });
+    for (const a of ['triage', 'spec-reviewer', 'test-writer', 'builder', 'evaluator', 'pr-reviewer', 'test-write', 'qa']) fs.mkdirSync(path.join(md, 'reports', a), { recursive: true });
     const headless = flag('--headless') || isHeadless();
     const st = {
       schema: 1, plugin_version: pluginVersion(), phase: 'triage', auto: false, approved: false,
@@ -108,6 +134,7 @@ const cmds = {
       test_hashes: {}, counters: { stop: {}, stop_total: 0, subagents: 0, fix_total: 0 },
       budget: { max_minutes: Number(opt('--max-minutes', 120)), max_subagents: Number(opt('--max-subagents', 40)), max_fix_rounds_total: 15 },
       impl_globs: ['src/**', 'app/**', 'lib/**', 'server/**', 'public/**'],
+      base_sha: (() => { try { return execFileSync('git', ['rev-parse', 'HEAD'], { cwd: proj, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null; } catch { return null; } })(),
     };
     writeState(proj, st, { fresh: true });
     if (prev) {
@@ -147,12 +174,12 @@ const cmds = {
         if (ci < 0 || ti <= ci) fail(2, `생략 거부: ${cur} → ${next}는 기본 순서상 앞으로 가는 전이가 아님`);
         if (ti > CHAIN.indexOf('report')) fail(2, '생략 거부: report는 생략할 수 없음(먼저 report로 가서 보고서를 쓴다)');
         const path_ = CHAIN.slice(ci, ti);
-        if (path_.includes('approve') && !st.approved) {
-          const plan = core.readJsonFile(path.join(md, 'run-plan.json'), {});
-          if (plan.task_type !== 'investigation' && next !== 'report') fail(2, '생략 거부: 승인 없이 approve를 건너뛰는 것은 조사(investigation) 작업이거나 report로 가서 끝낼 때만');
-        }
+        commonChecks(st, cur); // SPEC_EDITED·TESTS_CHANGED를 먼저 알린다
+        // 생략은 원장에 고정된 과제 성격으로만 판단한다(triage를 떠날 때 고정. 그 전이면 지금 고정)
+        lockTaskFacts(st);
+        if (st.task_type !== 'investigation' && st.risky !== true) fail(2, '생략 거부: 구현이 필요한 작업은 기획·승인·테스트·평가 단계를 건너뛸 수 없다. 작은 작업도 AC 1개로 진행한다');
+        if (st.task_type !== 'investigation' && next !== 'report') fail(2, '생략 거부: 위험 요청의 생략은 report로만 갈 수 있다');
         gateEntry(st, next);
-        commonChecks(st, cur);
         st.skipped = st.skipped || {};
         for (const ph of path_) st.skipped[ph] = String(skipReason);
         st.phase = next;
@@ -173,6 +200,7 @@ const cmds = {
       const miss = missingRequires(proj, st, cur);
       if (miss.length) fail(2, `전이 거부: ${cur}의 조건 미충족 — ${miss.join(', ')}`);
       gateEntry(st, next);
+      if (cur === 'triage') lockTaskFacts(st);
       const ac = st.current_ac && st.ac[st.current_ac];
       const remaining = nonHeldAcs(st).filter(id => lastVerdict(st.ac[id]) !== 'VERIFIED');
       if (cur === 'evaluate' && next === 'fix') {
@@ -301,6 +329,7 @@ const cmds = {
     if (st0.phase !== 'approve') fail(2, `approve 단계가 아님(현재 ${st0.phase})`);
     if (st0.mode === 'headless' && !st0.auto_approve) fail(2, 'headless 모드 자동 승인은 init 때 사전 승인(MURBA_HEADLESS=1 또는 --auto-approve)이 있었을 때만. 승인 대기로 보고서를 쓰고 끝낸다');
     if (!st0.ac_order.length) fail(2, 'AC 없음 — murba ac sync 먼저');
+    if (st0.task_type !== 'investigation') sourceGate(st0, 'murba approve');
     let tokenP = null;
     if (st0.mode !== 'headless') {
       // 대화형 승인 = 사람 확인. guard가 approve에 ask를 낼 때 .murba/approve-token을 쓰고, 여기서 10분 안의 토큰을 소비한다.
@@ -350,6 +379,7 @@ const cmds = {
       appendEvent(proj, 'test_amended', { files: changed, reason });
       return out(`테스트 ${changed.length}개 재고정(TEST_AMENDED): ${changed.join(', ') || '없음'}`);
     }
+    sourceGate(readState(proj), 'murba lock-tests');
     updateState(proj, st => { st.test_hashes = { ...st.test_hashes, ...hashes }; });
     appendEvent(proj, 'lock_tests', { count: files.length });
     out(`테스트 ${files.length}개 해시 고정:\n${files.map(f => '  ' + f).join('\n')}`);

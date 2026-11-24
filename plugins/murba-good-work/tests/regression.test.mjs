@@ -90,7 +90,7 @@ test('F1 skip refuses backwards, past report, and approve for feature with ACs',
   const q = projAt('revise', s => acState(s, ['AC-001']));
   write(q, '.murba/run-plan.json', JSON.stringify({ task_type: 'feature' }));
   assert.equal(murbaCli(q, ['phase', 'setup', '--skip', 'x']).code, 2);
-  assert.equal(murbaCli(q, ['phase', 'approve', '--skip', 'x']).code, 0, 'skipping revise only is fine');
+  assert.equal(murbaCli(q, ['phase', 'approve', '--skip', 'x']).code, 2, 'v0.1.1: implementation work skips nothing');
 });
 
 // F2: headless stop gate (t091 asked A/B/C at triage and stopped)

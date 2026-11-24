@@ -8,7 +8,7 @@
       "name": "murba-good-work",
       "source": "./plugins/murba-good-work",
       "description": "기획 → 검토 → 구현 → 검증 → QA → 실제 브라우저 확인을 증거 기반으로 자동 진행하는 개발 파이프라인",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "category": "workflow"
     }
   ],
