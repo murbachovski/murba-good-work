@@ -13,6 +13,8 @@
 - 에이전트: triage, spec-reviewer, test-writer, builder, evaluator, pr-reviewer
 - 보고서 `.murba/report.md` + `.html`(결정적 스크립트)
 - 테스트 169개(실제 hook 입력 캡처 포함), 시나리오 과제 100개 + 무인 실행기(`scenarios/`)
+- GitHub marketplace 설치 경로(`--plugin-dir` 없이)로 과제 1개 끝까지 실행 확인(AC 3/3 VERIFIED)
+
 ### 알려진 문제
 - 사용자 답변의 명시 요구가 AC로 옮겨지지 않으면 플러그인 자기 판정은 통과한다(t067 감사 2회). v0.1.1에서 spec-review에 요구 → AC 대응 검사 추가 예정
 - guard는 실수 방지망. 의도적 난독화는 범위 밖([ADR 0003](docs/decisions/0003-guard-threat-model.md))
