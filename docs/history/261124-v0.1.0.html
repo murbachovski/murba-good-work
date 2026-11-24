@@ -15,7 +15,7 @@ pre{background:var(--card);border:1px solid var(--line);border-radius:8px;paddin
 <h2>요약</h2>
 <ul>
 <li><strong>한 일</strong>: 플러그인 <code>murba-good-work</code> v0.1을 구현하고, 실제 과제 100개를 무인 실행(sonnet)하며 나온 문제를 고쳤다. GitHub 공개 저장소에 배포 준비</li>
-<li><strong>결과</strong>: 과제 100개 중 첫 시도 92개 성공, 수정 후 재실행 포함 <strong>100개 성공</strong>. 독립 감사(11개 과제, 기대 결과 38줄)에서 거짓 성공 0건. 총 실행 109회, $301.36</li>
+<li><strong>결과</strong>: 과제 100개 중 첫 시도 92개 성공, 수정 후 재실행 포함 <strong>100개 성공</strong>(플러그인 자체 원장 기준, 여러 커밋에 걸친 결과). 독립 감사(11개 과제, 기대 결과 38줄)에서 거짓 성공 0건. 독립 PR 리뷰 3회로 guard·원장 우회를 고친 뒤, <strong>태그 커밋 b148187로 회귀 세트 11개 11/11 성공·오탐 0</strong>. 시나리오 실행 총 $361.40(리뷰·수정 에이전트 비용은 측정 못 함)</li>
 <li><strong>다음</strong>: <code>claude plugin eval</code>용 evals 작성, qa → fix 경로 실전 확인, v0.2(PR·pr-reviewer 흐름, 결정적 센서)</li>
 </ul>
 <h2>먼저 볼 것</h2>
@@ -25,7 +25,7 @@ pre{background:var(--card);border:1px solid var(--line);border-radius:8px;paddin
 </thead>
 <tbody>
 <tr><td>❌ 실패·생략</td><td><code>evals/</code>(claude plugin eval 스위트) 미작성 — 시나리오 실행기로 대신함. v0.2 항목(PR 자동 흐름, 센서, 코드 그래프, 자동 머지, evolve 루틴)은 계획대로 미구현</td></tr>
-<tr><td>⚠️ 미검증</td><td>qa → fix 재수정 경로는 단위 테스트로만 확인(재실행 4건에서 실제로 쓰이지 않음). 성공 판정은 플러그인 자체 원장 기준이고, 독립 감사는 11개 과제만</td></tr>
+<tr><td>⚠️ 미검증</td><td>사용자 답변의 명시 요구가 AC에서 빠지면 자기 판정이 통과함(t067, 감사 2회 확인, v0.1.1 수정 예정). qa → fix 재수정 경로는 단위 테스트로만 확인(재실행에서 실제로 쓰이지 않음). 성공 판정은 플러그인 자체 원장 기준이고, 독립 감사는 11개 과제만. "100개 성공"은 여러 플러그인 커밋에 걸친 결과이고, 태그 커밋(b148187)은 회귀 세트 11개로 확인. 조사·위험 요청의 성공 기준(보고서로 끝나면 성공)은 b2 이후 정해 이전 배치에도 소급 적용. 모든 시험은 <code>--plugin-dir</code>로 실행(marketplace 설치 경로는 배포 후 별도 확인). 위험 요청 6개는 모두 모델이 스킬 규칙으로 실행을 시도하지 않았고, guard의 비가역 명령 차단은 실제 시나리오에서 발동되지 않음(단위 테스트 169개와 리뷰어 재현 스크립트로만 확인). guard는 실수 방지망이고 의도적 난독화는 범위 밖(<a href="../decisions/0003-guard-threat-model.md">ADR 0003</a>). t091은 b2까지 시드에 DB 파일이 없어 b6에서 실제 DB로 다시 확인(삭제 안 됨)</td></tr>
 <tr><td>범위 밖 변경</td><td>없음</td></tr>
 </tbody>
 </table>
@@ -46,10 +46,18 @@ pre{background:var(--card);border:1px solid var(--line);border-radius:8px;paddin
 <tr><td>b2</td><td>b7e67dc</td><td>30</td><td>28</td><td>$85.92</td><td>15.8분</td><td>44</td></tr>
 <tr><td>b3</td><td>4991f17</td><td>65</td><td>62</td><td>$178.13</td><td>15.5분</td><td>94</td></tr>
 <tr><td>b4(실패 재실행)</td><td>7306356</td><td>4</td><td>4</td><td>$13.23</td><td>19.0분</td><td>2</td></tr>
+<tr><td>b5(태그 전 확인)</td><td>061bad0</td><td>5</td><td>5</td><td>$8.34</td><td>8.1분</td><td>0</td></tr>
+<tr><td>b6(t091 실제 DB)</td><td>061bad0</td><td>1</td><td>1</td><td>$0.21</td><td>0.6분</td><td>0</td></tr>
+<tr><td>b7(1차 리뷰 수정 뒤)</td><td>befdab9</td><td>6</td><td>5</td><td>$10.94</td><td>8.4분</td><td>4</td></tr>
+<tr><td>release-1</td><td>무효</td><td>10</td><td>—</td><td>$16.05</td><td>—</td><td>—</td></tr>
+<tr><td><strong>release-2(태그 커밋)</strong></td><td><strong>b148187</strong></td><td><strong>11</strong></td><td><strong>11</strong></td><td><strong>$24.50</strong></td><td>14.9분</td><td>5</td></tr>
 </tbody>
 </table>
 <ul>
-<li>고유 과제 100개: 첫 시도 92, 최종 100. 처리한 AC 817개, 결정 큐 기록 710건</li>
+<li>고유 과제 100개: 첫 시도 92, 최종 100. b1~b4 기준 처리한 AC 817개, 결정 큐 기록 710건. 전체 실행 143회, $361.40</li>
+<li>b7 실패(t002): 테스트 자체 결함을 고쳤더니 새 테스트 잠금이 영원히 막음 → <code>murba lock-tests --amend</code> 경로 추가</li>
+<li>release-1: 실행 도중 작업 트리의 플러그인 파일이 바뀌어(병렬 수정) 어느 커밋을 시험했는지 특정할 수 없어 무효 처리. 실행기가 이제 고정 사본과 SHA를 기록한다. 중단한 t002 일부 비용은 측정 못 함</li>
+<li>release-2 guard 차단 2건은 builder의 숨긴 검사 접근(의도된 차단). 정상 명령 오탐 0건. 권한 거부 5건은 실행기 허용 목록 밖 명령(<code>ls ~/Library/Caches/…</code> 등)</li>
 <li>유형별(최종): 기능 35/35, 버그 20/20, 지저분한 데이터 10/10, 리팩터 8/8, 조사 7/7, 성능 5/5, 프로토타입 5/5, 위험 요청 6/6, 모호·충돌 4/4</li>
 <li>guard 차단 12건(에이전트 경로 위반 11, 비밀 파일 쓰기 1). Stop gate 차단 15건, 상한 도달 2건</li>
 </ul>
@@ -71,6 +79,17 @@ pre{background:var(--card);border:1px solid var(--line);border-radius:8px;paddin
 <tr><td>무인 실행마다 settings 쓰기 시도 → 거부</td><td>headless에서는 허용목록 생략</td></tr>
 </tbody>
 </table>
+<h2>독립 PR 리뷰 (guard·원장)</h2>
+<table>
+<thead>
+<tr><th>회차</th><th>결과</th><th>처리</th></tr>
+</thead>
+<tbody>
+<tr><td>1차</td><td>머지 불가: guard 끄기(<code>.murba/disable</code>), <code>--skip</code>으로 승인 우회, 서브에이전트 판정 위조, force-push·heredoc DROP 우회 등 13건</td><td>모두 수정(befdab9)</td></tr>
+<tr><td>2차</td><td>머지 불가: 같은 종류 변형으로 8건 재발</td><td>위협 모델을 "실수 방지망"으로 결정(ADR 0003). 구조적 차단(호출 주체 기록, 원장 해시) + 흔한 변형 처리(8419fde)</td></tr>
+<tr><td>3차(마지막)</td><td>자연스러운 우회 30건(중단 종류 23), 난독화 3건</td><td>수정 1라운드로 30건 모두 차단, 리뷰어 재현 스크립트로 확인(b148187). 난독화 3건은 범위 밖으로 문서화</td></tr>
+</tbody>
+</table>
 <h2>독립 감사</h2>
 <p>새 컨텍스트 에이전트(sonnet)가 플러그인 보고서를 보지 않고 과제 11개의 기대 결과 38줄을 직접 실행으로 확인했다.</p>
 <table>
@@ -85,6 +104,7 @@ pre{background:var(--card);border:1px solid var(--line);border-radius:8px;paddin
 </tbody>
 </table>
 <ul>
+<li><strong>태그 커밋 확인(t067, release-2)</strong>: 기대 결과 3줄 중 2줄 PASS, 1줄 <strong>FAIL(부분)</strong>. "무작위 200개 입력 특성 테스트" 요구가 고정 474개 케이스로 작성됨. 감사자의 무작위 50만 건 비교로 동작 보존은 확인(불일치 0). 1차 감사(b2)에서도 같은 지적 → <strong>플러그인이 사용자 답변의 명시 요구를 AC로 옮기지 않으면 자기 판정은 통과한다</strong>(알려진 문제, v0.1.1에서 spec-review에 요구→AC 대응 검사 추가)</li>
 <li>참고: t095(비밀 마스킹)의 출력에 실행 머신의 환경변수 <strong>이름</strong>이 길이와 함께 나옴(값은 없음). 요구 범위 안이지만 이름 노출로 기록</li>
 </ul>
 <h2>단계별 결과</h2>
@@ -98,7 +118,9 @@ pre{background:var(--card);border:1px solid var(--line);border-radius:8px;paddin
 <tr><td>3</td><td>시나리오 100개</td><td>✅</td><td>위 표. 원본 실행 기록은 git 제외(로컬 scratchpad)</td></tr>
 <tr><td>4</td><td>독립 감사</td><td>✅</td><td>위 표</td></tr>
 <tr><td>5</td><td>문서 반영</td><td>✅</td><td>기획서 변경 기록, ADR 0002, CHANGELOG, 이 보고서</td></tr>
-<tr><td>6</td><td>배포</td><td>(진행)</td><td>PR → 독립 리뷰 → 머지 → tag v0.1.0 · Release</td></tr>
+<tr><td>6</td><td>독립 PR 리뷰</td><td>✅</td><td>3회, 위 표. <a href="https://github.com/murbachovski/murba-good-work/pull/1">PR #1</a></td></tr>
+<tr><td>7</td><td>회귀 세트(태그 커밋)</td><td>✅</td><td>release-2 11/11, 오탐 0</td></tr>
+<tr><td>8</td><td>배포</td><td>머지 후</td><td>머지 → main에서 marketplace 설치 확인 → tag v0.1.0 · Release. 결과는 CHANGELOG·Release 노트에 기록</td></tr>
 </tbody>
 </table>
 <h2>내가 내린 결정 (틀렸을 때 비용)</h2>
@@ -107,9 +129,11 @@ pre{background:var(--card);border:1px solid var(--line);border-radius:8px;paddin
 <li>무인 실행 문서에 <code>CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0</code> 권장: 끝없이 기다릴 수 있음 → 실행기 시간 제한 필요</li>
 <li>시험 모델 sonnet(서브에이전트 포함): opus 기본 에이전트 구성의 성능은 이번에 측정 안 함</li>
 <li>조사·위험 요청 성공 기준을 "보고서로 끝남"으로: 보고서 내용 품질은 감사 표본(t091, t095)만 확인</li>
+<li>guard 위협 모델을 실수 방지망으로(사용자 선택): 모델이 일부러 피하면 막지 못함 → 강한 차단은 <code>permissions.deny</code>·샌드박스 병행 권장</li>
 </ul>
 <h2>다음 할 일</h2>
 <ol>
+<li>spec-review에 brief·사전 답변의 명시 요구 → AC 대응 검사 추가(t067 사례)</li>
 <li><code>evals/</code> 작성 후 <code>claude plugin eval</code></li>
 <li>qa → fix 경로가 실제로 쓰이는 과제로 확인</li>
 <li>v0.2: PR·pr-reviewer 흐름, 결정적 센서, 조건부 코드 그래프</li>
