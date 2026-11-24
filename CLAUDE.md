@@ -4,10 +4,10 @@
 이 파일은 목차다. 규칙 본문은 `docs/rules/`에 있고 작업 전에 해당 파일을 읽는다.
 
 ## 현재 상태
-- 단계: main = 플러그인 0.1.1(구현 작업 파이프라인 생략 금지, [ADR 0004](docs/decisions/0004-no-pipeline-skip-for-implementation.md)). tag·[Release v0.1.1](https://github.com/murbachovski/murba-good-work/releases/tag/v0.1.1). 보고서 [261124-v0.1.1](docs/history/261124-v0.1.1.md), 시험 변경 [ADR 0002](docs/decisions/0002-scenario-test-changes.md), guard 위협 모델 [ADR 0003](docs/decisions/0003-guard-threat-model.md)
+- 단계: main = 플러그인 0.1.2(생략 실행 소스 변경 금지·init 기준선·대상 저장소 `.gitignore` 미변경, [ADR 0005](docs/decisions/0005-skipped-runs-and-baseline.md)). tag·Release는 [v0.1.1](https://github.com/murbachovski/murba-good-work/releases/tag/v0.1.1)까지. 보고서 [261124-v0.1.2](docs/history/261124-v0.1.2.md), [261124-v0.1.1](docs/history/261124-v0.1.1.md), 시험 변경 [ADR 0002](docs/decisions/0002-scenario-test-changes.md), guard 위협 모델 [ADR 0003](docs/decisions/0003-guard-threat-model.md)
 - 비교 평가: [예비 비교](docs/evaluation/261124-pilot.md), [확장 비교 25×3](docs/evaluation/261124-full.md)(murba vs pstack vs 플러그인 없음)
 - CI: GitHub Actions(Node 18·20·22 테스트 + validate), main 보호(CI 필수)
-- 다음 후보(v0.1.2): 생략으로 끝나는 실행의 소스 변경 0 검사, init 전 작업 중 변경을 기준선으로, `murba init`이 대상 저장소에 `.gitignore`를 만들지 않게(확장 비교 n13)
+- 다음 후보(v0.1.3): guard의 승인 전 `.gitignore` 쓰기 예외 제거(게이트 숨김 경로), 무인 실행의 서브에이전트 백그라운드·`ScheduleWakeup` 대기(t093 관찰)
 - 기준 문서: [기획서 v0.1](docs/spec/spec-v0.1.md) — 모든 구현은 기획서가 우선한다
 - 결정 기록: [초기 결정 로그](docs/decisions/0001-initial-decision-log.md)
 

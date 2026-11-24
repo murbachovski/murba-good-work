@@ -19,6 +19,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+      - name: ripgrep for the hidden-check search test
+        run: sudo apt-get install -y ripgrep
       - name: launcher runs without ESM detection
         run: node plugins/murba-good-work/bin/murba help
       - name: hook and CLI tests
