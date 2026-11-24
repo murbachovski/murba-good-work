@@ -76,10 +76,12 @@ const gitOut = a => execFileSync('git', a, { cwd: proj, encoding: 'utf8', stdio:
 const gitList = a => gitOut(a).split('\0').filter(Boolean);
 // 버릴 수 있는 폴더: 이름이 의존성·캐시 폴더이거나 도구 표식(venv의 pyvenv.cfg, mypy·ruff 등 캐시의 CACHEDIR.TAG)이 있는 폴더.
 // 추적 파일이 있는 폴더는 이름과 무관하게 소스다
-const CACHE_NAMES = [...ARTIFACT_NAMES, '.mypy_cache', '.ruff_cache', '.tox', '.nox', '.gradle', '.parcel-cache'];
+const CACHE_NAMES = [...ARTIFACT_NAMES, '.mypy_cache', '.ruff_cache', '.tox', '.nox', '.gradle', '.parcel-cache', 'htmlcov'];
+// 도구가 만든 .gitignore 첫 줄(coverage.py: '# Created by coverage.py', pytest: '# Created by pytest automatically.')
+const toolIgnore = d => { try { return /^# Created by /.test(fs.readFileSync(path.join(proj, d, '.gitignore'), 'utf8')); } catch { return false; } };
 const ARTIFACT_PATHSPEC = CACHE_NAMES.map(n => `:(exclude,glob)**/${n}/**`);
 const memo = (fn, m = new Map()) => k => (m.has(k) ? m.get(k) : (m.set(k, fn(k)), m.get(k)));
-const isDisposableDir = memo(d => CACHE_NAMES.includes(path.basename(d)) || fs.existsSync(path.join(proj, d, 'pyvenv.cfg')) || fs.existsSync(path.join(proj, d, 'CACHEDIR.TAG')));
+const isDisposableDir = memo(d => CACHE_NAMES.includes(path.basename(d)) || fs.existsSync(path.join(proj, d, 'pyvenv.cfg')) || fs.existsSync(path.join(proj, d, 'CACHEDIR.TAG')) || toolIgnore(d));
 let trackedDirs = null;
 const isTrackedDir = d => {
   if (!trackedDirs) { trackedDirs = new Set(); for (const f of gitList(['ls-files', '-z'])) for (let p = path.posix.dirname(f); p !== '.' && !trackedDirs.has(p); p = path.posix.dirname(p)) trackedDirs.add(p); }
@@ -100,7 +102,11 @@ function untrackedFiles() {
 }
 // git이 '안 바뀐 것'으로 보게 표시한 추적 파일(assume-unchanged `h`, skip-worktree `S`) 중 작업 트리가 인덱스와 다른 것.
 // 한 번에 나열하고(ls-files -v -s) 일반 파일은 hash-object --stdin-paths 한 번으로(필터 적용), 링크는 링크 텍스트로 비교
-const gitBlobSha = buf => crypto.createHash('sha1').update(`blob ${buf.length}\0`).update(buf).digest('hex');
+let objectFormat = null;
+const gitBlobSha = buf => {
+  if (!objectFormat) { try { objectFormat = gitOut(['rev-parse', '--show-object-format']).trim() === 'sha256' ? 'sha256' : 'sha1'; } catch { objectFormat = 'sha1'; } }
+  return crypto.createHash(objectFormat).update(`blob ${buf.length}\0`).update(buf).digest('hex');
+};
 function flaggedChanged() {
   const reg = [], out = [];
   for (const e of gitList(['ls-files', '-v', '-s', '-z'])) {
@@ -113,9 +119,13 @@ function flaggedChanged() {
     if (lst.isSymbolicLink()) { out.push(f); continue; }
     reg.push([f, blob]);
   }
-  if (reg.length) {
-    const hs = execFileSync('git', ['hash-object', '--stdin-paths'], { cwd: proj, input: reg.map(r => r[0]).join('\n') + '\n', encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], maxBuffer: 512 * 1024 * 1024 }).trim().split('\n');
-    reg.forEach(([f, b], i) => { if (hs[i] !== b) out.push(f); });
+  // --stdin-paths는 저장소 루트 기준으로 경로를 연다: 루트에서 실행하고 프로젝트 접두를 붙인다(모노레포 하위 폴더). 이름에 줄바꿈이 있으면 따로
+  const one = reg.filter(([f]) => f.includes('\n')), many = reg.filter(([f]) => !f.includes('\n'));
+  for (const [f, b] of one) if (gitOut(['hash-object', '--', f]).trim() !== b) out.push(f);
+  if (many.length) {
+    const top = gitOut(['rev-parse', '--show-toplevel']).trim(), prefix = gitOut(['rev-parse', '--show-prefix']).trim();
+    const hs = execFileSync('git', ['hash-object', '--stdin-paths'], { cwd: top, input: many.map(r => prefix + r[0]).join('\n') + '\n', encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'], maxBuffer: 512 * 1024 * 1024 }).trim().split('\n');
+    many.forEach(([f, b], i) => { if (hs[i] !== b) out.push(f); });
   }
   return out;
 }
@@ -123,12 +133,16 @@ const changedSince = rev => [...gitList(['diff', '--name-only', '--relative', '-
 // .gitignore 파일: 무시 줄로 자기 자신까지 숨길 수 있어 --exclude-standard 없이 따로 나열.
 // 새 .gitignore는 이미 무시된 폴더 안이거나 추적 파일 없는 버릴 수 있는 폴더 안(도구가 만든 캐시·venv)이면 뺀다
 const isIgnoreFile = f => /(^|\/)\.gitignore$/.test(f) && !f.startsWith('.murba/');
-const newIgnoreFileMatters = f => { for (let d = path.posix.dirname(f); d !== '.'; d = path.posix.dirname(d)) if (dirIgnored(d) || (!isTrackedDir(d) && isDisposableDir(d))) return false; return true; };
+// 위에서 아래로 걷는다(.venv 같은 바깥 폴더에서 한 번에 걸리게)
+const newIgnoreFileMatters = f => { const ds = []; for (let d = path.posix.dirname(f); d !== '.'; d = path.posix.dirname(d)) ds.unshift(d); for (const d of ds) if (dirIgnored(d) || (!isTrackedDir(d) && isDisposableDir(d))) return false; return true; };
 const ignoreFilesChanged = rev => [...gitList(['diff', '--name-only', '--relative', '--no-renames', '-z', rev, '--', ':(glob)**/.gitignore']), ...gitList(['ls-files', '--others', '-z', '--', ':(glob)**/.gitignore', ':(exclude).murba/**']).filter(newIgnoreFileMatters)].filter(isIgnoreFile);
 // 프로젝트가 저장소 하위 폴더면 위쪽 폴더의 .gitignore(../.gitignore …)도 프로젝트 파일을 숨길 수 있다: init 때 내용 해시를 기록해 비교
+// 경로는 실제 경로(realpath) 기준으로 푼다: 프로젝트 경로에 링크가 끼면 '../'를 글자대로 풀 때 엉뚱한 폴더가 된다
+const realProj = (() => { try { return fs.realpathSync(proj); } catch { return proj; } })();
 function outerIgnoreFiles() {
   try { const up = gitOut(['rev-parse', '--show-cdup']).trim(); const n = up ? up.split('/').filter(Boolean).length : 0; return Array.from({ length: n }, (_, i) => '../'.repeat(i + 1) + '.gitignore'); } catch { return []; }
 }
+const outerHash = f => { try { return sha256File(path.join(realProj, f)); } catch { return null; } };
 const fileHash = f => { try { return sha256File(path.join(proj, f)); } catch { return null; } };
 const gateFile = (f, globs) => !f.startsWith('.murba/') && f !== '.gitignore' && !isTestPath(f) && !CONFIG_RE.test(f) && (matchAny(f, globs) || CODE_EXT.test(f));
 // init 때 이미 바뀌어 있던 구현 파일(추적 파일의 변경·삭제, 추적 안 된 파일)과 그 내용 해시(삭제면 null). 사용자가 하던 작업을 게이트가 오탐하지 않게 한다
@@ -171,7 +185,7 @@ function skippedRunGate(st, what) {
   const base = st.base_dirty || {};
   const same = f => Object.prototype.hasOwnProperty.call(base, f) && base[f] === fileHash(f);
   try { ch = [...ch, ...[...new Set([...ignoreFilesChanged(st.base_sha), ...Object.keys(base).filter(isIgnoreFile)])].filter(f => !ch.includes(f) && !same(f))]; } catch { return gateUnavailable(st, what); }
-  for (const [f, h] of Object.entries(st.base_outer_ignore || {})) if (fileHash(f) !== h) ch.push(f);
+  for (const [f, h] of Object.entries(st.base_outer_ignore || {})) if (outerHash(f) !== h) ch.push(f);
   if (ch.length) { appendEvent(proj, 'source_changed_in_skipped_run', { what, files: ch }); fail(2, `SOURCE_CHANGED_IN_SKIPPED_RUN: ${ch.join(', ')} — build·평가를 건너뛴 실행(조사·위험 요청 보고)은 검증되지 않은 구현 파일 변경을 남길 수 없다. 이 변경을 되돌리거나(재현 스크립트는 프로젝트 밖으로) 다시 ${what}`); }
 }
 
@@ -229,7 +243,7 @@ const cmds = {
       // 기준선은 init 시점의 HEAD와 작업 중 변경. 재초기화(--force)는 새 실행이라 다시 잡는다(guard가 사람 확인을 요구하고 결정 큐에 남는다)
       base_sha: (() => { try { return gitOut(['rev-parse', 'HEAD']).trim() || null; } catch { return null; } })(),
       base_dirty: dirtyBaseline(DEFAULT_IMPL_GLOBS),
-      base_outer_ignore: Object.fromEntries(outerIgnoreFiles().map(f => [f, fileHash(f)])),
+      base_outer_ignore: Object.fromEntries(outerIgnoreFiles().map(f => [f, outerHash(f)])),
     };
     writeState(proj, st, { fresh: true });
     if (prev) {

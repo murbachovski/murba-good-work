@@ -24,4 +24,7 @@
 - 승인 전 `.gitignore`에 `.murba/`를 넣으려는 이전 습관은 거부된다(v0.1.2부터 필요 없음)
 - 예약 호출이 꼭 필요한 정상 흐름은 없다고 봤다. 거부 메시지는 "할 일이 없으면 턴을 끝내고 알림을 기다린다"로 안내한다(`-p`에서 완료 알림은 턴 종료 뒤에 온다)
 - 독립 리뷰(PR #14) 반영: 1차 자기 무시 `.gitignore`, init 전 `.gitignore` 기준선, 예약 호출 거부 범위(done 뒤 허용)와 문구, assume-unchanged·skip-worktree. 2차 추적 폴더(`build/`·`out/`) 안 새 `.gitignore`, 도구 캐시·venv 오탐, 표시 파일 성능·링크, 상위 폴더 `.gitignore`, `check-ignore`에 폴더 끝 `/`를 붙이면 그 폴더 자신의 `*`가 적용되는 문제
-- 버릴 수 있는 폴더 판정(이름·표식 파일)에 없는 도구 캐시가 `.gitignore`를 만들면 오탐이 남는다
+- 3차: 모노레포 하위 폴더에서 `hash-object --stdin-paths`가 루트 기준 경로를 여는 문제(루트에서 접두를 붙여 실행), coverage.py 보고서 폴더(`# Created by …` 첫 줄 표식), 프로젝트 경로에 링크가 끼면 상위 `.gitignore`를 엉뚱하게 푸는 문제(실제 경로 기준), 위에서 아래로 걷기(성능), sha256 저장소의 링크 해시
+- 버릴 수 있는 폴더 판정(이름·표식 파일·`# Created by …`)에 없는 도구 캐시가 `.gitignore`를 만들면 오탐이 남는다. 반대로 `.gitignore` 첫 줄을 `# Created by`로 쓰거나 `CACHEDIR.TAG`를 심어 숨기는 것은 의도적 위장이라 범위 밖
+- `core.autocrlf=true`에서 CRLF로 커밋된 파일에 init 뒤 표시를 붙이면 내용이 같아도 변경으로 볼 수 있다(init 전 표시는 기준선이 가림)
+- setup 단계에서 추적 중인 `src/.gitignore`(impl_globs 안)를 고치면 approve·lock-tests 게이트가 구현 파일 변경으로 본다(루트 `.gitignore`만 제외)

@@ -145,3 +145,34 @@ test('v0.1.3 r2: a new untracked folder whose own .gitignore ignores everything 
   write(q, 'gen/.gitignore', '*\n'); // inside a folder the user already ignores
   assert.equal(skip(q).code, 0);
 });
+
+// ---- PR #14 review round 3 ----
+test('v0.1.3 r3: flagged files in a monorepo subfolder project are compared, not a gate error', () => {
+  const root = tmpProj({ murba: false });
+  write(root, 'pkg/src/id.js', 'a\n'); write(root, 'pkg/src/주문.js', 'b\n'); git(root, 'add', '-A'); git(root, 'commit', '-qm', 'seed');
+  const p = path.join(root, 'pkg');
+  git(p, 'update-index', '--assume-unchanged', 'src/id.js', 'src/주문.js');
+  m(p, ['init']); inv(p);
+  assert.equal(skip(p).code, 0, 'untouched flagged files pass');
+  const q = tmpProj({ murba: false });
+  write(q, 'pkg/src/id.js', 'a\n'); git(q, 'add', '-A'); git(q, 'commit', '-qm', 'seed');
+  const qp = path.join(q, 'pkg'); m(qp, ['init']); inv(qp);
+  git(qp, 'update-index', '--skip-worktree', 'src/id.js'); write(qp, 'src/id.js', 'changed\n');
+  const r = skip(qp); assert.equal(r.code, 2); assert.match(r.err, /SOURCE_CHANGED_IN_SKIPPED_RUN: src\/id\.js/);
+});
+
+test('v0.1.3 r3: coverage.py HTML report folders (default or -d) are not changes', () => {
+  const p = seeded(); m(p, ['init']); inv(p);
+  write(p, 'htmlcov/.gitignore', '# Created by coverage.py\n*\n'); write(p, 'htmlcov/index.html', '<html></html>');
+  write(p, 'cov_html/.gitignore', '# Created by coverage.py\n*\n'); write(p, 'cov_html/index.html', '<html></html>');
+  assert.equal(skip(p).code, 0);
+});
+
+test('v0.1.3 r3: parent .gitignore is compared through the real path when the project path is a symlink', () => {
+  const root = tmpProj({ murba: false });
+  write(root, 'packages/pkg/src/a.js', 'a\n'); git(root, 'add', '-A'); git(root, 'commit', '-qm', 'seed');
+  const link = path.join(tmpProj({ murba: false }), 'pkg-link'); fs.symlinkSync(path.join(root, 'packages/pkg'), link);
+  m(link, ['init']); inv(link);
+  write(root, '.gitignore', 'packages/pkg/src/hidden.js\n'); write(root, 'packages/pkg/src/hidden.js', 'h\n');
+  const r = skip(link); assert.equal(r.code, 2); assert.match(r.err, /\.\.\/\.\.\/\.gitignore/);
+});
