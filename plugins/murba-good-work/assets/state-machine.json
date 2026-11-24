@@ -18,7 +18,8 @@
       "owner": "orchestrator",
       "auto": false,
       "requires": [
-        "spec.md"
+        "spec.md",
+        "brief.md"
       ],
       "next": [
         "spec-review"

@@ -3,7 +3,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
 import { PLUGIN_NAME, projectDir, readState, readStdin, appendEvent, appendDecision, logHook, murbaDir } from './lib/core.mjs';
-import { analyzeBash, bashWriteRels, bashPathArgs, canonRel, pathVariants, relIs, relUnder, hasGlob, walkSegments, findNamePatterns, findDeletes, findRoots, scriptKind, scanScript, deleteTargetReason, isTestPath, isSecretPath, matchAny, DEFAULT_IMPL_GLOBS, murbaInvocations, RUNNER_SECTION_FILES } from './lib/patterns.mjs';
+import { analyzeBash, segWriteTargets, redirectTargets, gitSubIndex, bashWriteRels, bashPathArgs, canonRel, pathVariants, relIs, relUnder, hasGlob, walkSegments, findNamePatterns, findDeletes, findRoots, scriptKind, scanScript, deleteTargetReason, isTestPath, isSecretPath, matchAny, DEFAULT_IMPL_GLOBS, murbaInvocations, RUNNER_SECTION_FILES } from './lib/patterns.mjs';
 
 // Ledger files: only the murba CLI (and this guard, for `caller`) changes them. Write/Edit and Bash writes are refused for everyone.
 const LEDGER = ['.murba/state.json', '.murba/events.jsonl', '.murba/decisions.tsv', '.murba/caller', '.murba/state.sha256', '.murba/approve-token'];
@@ -12,8 +12,8 @@ const isMurbaRoot = rel => relIs(rel, '.murba') || rel === '.murba/*' || rel ===
 // murba subcommands a subagent may run (read-only). evaluator may also create an evidence run folder.
 const MURBA_READONLY = ['status', 'check-tests', 'help', '--help', '-h'];
 
-// phases before the human approves the spec; the main session must not edit project sources then
-const PRE_APPROVAL = ['triage', 'grill', 'spec-review', 'revise', 'approve'];
+// Before the human approves the spec nobody edits project sources (main session or subagents).
+// Keyed on state.approved (not a phase list), so skipping ahead without approval keeps the rule on.
 function runPlanType(proj) {
   const p = path.join(murbaDir(proj), 'run-plan.json');
   if (!fs.existsSync(p)) return null; // no plan yet (triage start): not applied; CLI skip rule + red-test check in test-write cover early edits
@@ -25,6 +25,42 @@ function decide(decision, reason) {
   process.exit(0);
 }
 const ask = reason => decide('ask', reason);
+
+// task type: locked in state at triage→grill when present, else the run plan
+const taskTypeOf = (st, proj) => st.task_type || runPlanType(proj);
+const preApprovalActive = (st, proj) => { const t = taskTypeOf(st, proj); return !!st.phase && st.phase !== 'done' && !st.approved && !!t && t !== 'investigation'; };
+// a project path the pre-approval rule protects: inside the project, not .murba/, not .gitignore
+const outsideMurba = rel => rel !== undefined && rel !== null && !path.isAbsolute(rel) && !/^\.\.(\/|$)/.test(rel) && !relIs(rel, '.murba') && !relUnder(rel, '.murba') && rel !== '.gitignore';
+// Writes a Bash command makes, per segment (cd-aware). git arguments count only in the git segment itself:
+// checkout/restore paths are writes, branch names are not; apply/am/patch and formatters write (targets may be unknown).
+function preApprovalBashWrites(cmd, proj) {
+  const { segs, heredocs } = walkSegments(cmd, proj);
+  const bodies = heredocs.map(h => h.body);
+  const rels = [], unknown = [];
+  for (const s of segs) {
+    const w = s.words, c0 = s.c0;
+    const pv = t => pathVariants(proj, t, s.cwd);
+    if (c0 === 'git') {
+      for (const t of redirectTargets(s.text)) rels.push(...pv(t));
+      const si = gitSubIndex(w), sub = si > 0 ? w[si] : null, rest = si > 0 ? w.slice(si + 1) : [];
+      if (sub === 'apply' || sub === 'am') { if (!rest.some(t => ['--check', '--stat', '--numstat', '--summary'].includes(t))) unknown.push(`git ${sub}`); continue; }
+      if (sub === 'checkout' || sub === 'restore') {
+        if (sub === 'checkout' && rest.some(t => ['-b', '-B', '--orphan', '--detach', '-c', '-C'].includes(t))) continue;
+        if (sub === 'restore' && rest.includes('--staged') && !rest.some(t => ['--worktree', '-W'].includes(t))) continue;
+        const dd = rest.indexOf('--');
+        const a = []; for (let k = 0; k < rest.length; k++) { const t = rest[k]; if (['-s', '--source'].includes(t)) { k++; continue; } if (!t.startsWith('-')) a.push(t); }
+        const paths = dd >= 0 ? rest.slice(dd + 1) : sub === 'restore' ? a : a.filter(t => fs.existsSync(path.resolve(s.cwd || proj, t)));
+        for (const t of paths) rels.push(...pv(t));
+      }
+      continue;
+    }
+    if (c0 === 'patch') { unknown.push('patch'); continue; }
+    if (FORMATTER_WRITES(c0, w)) { const a = w.slice(1).filter(t => !t.startsWith('-')); if (!a.length) unknown.push(c0); for (const t of a) rels.push(...pv(t)); continue; }
+    if (c0 === 'mkdir') for (const t of w.slice(1).filter(t => !t.startsWith('-'))) rels.push(...pv(t));
+    for (const t of segWriteTargets(s.text, w, bodies)) rels.push(...pv(t));
+  }
+  return { rels: rels.filter(r => r !== ''), root: rels.includes(''), unknown };
+}
 const deny = reason => decide('deny', reason);
 
 // Human-approval token for the CLI: written when the guard asks a human to confirm `murba approve` (CLI accepts it for 10 minutes)
@@ -166,6 +202,8 @@ function main() {
   const ti = input.tool_input || {};
   const name = agentName(input);
   const phase = st.phase || '?';
+  const preActive = preApprovalActive(st, proj);
+  const PRE_REASON = '승인 전에는 소스를 고치지 않는다. 기획서(.murba/spec.md)와 AC를 먼저 승인받는다';
 
   const block = (reason, rule, cls) => {
     logHook(proj, 'guard', 'blocked', { tool, rule, agent: input.agent_type || 'main', reason });
@@ -216,6 +254,10 @@ function main() {
           if (pathVariants(proj, d.target).some(isMurbaRoot)) block(`스크립트(${rel})가 .murba 폴더를 지움`, 'murba-root', null);
         }
         if (sc.sql) block(`스크립트(${rel}) 안: DB 데이터 삭제(DROP/TRUNCATE) SQL 실행`, 'db-drop', 'irreversible');
+        if (preActive) {
+          for (const w of sc.writes) for (const v of pathVariants(proj, w)) if (outsideMurba(v)) block(`${PRE_REASON}(스크립트 ${rel}가 ${v || '프로젝트 루트'}에 씀)`, 'pre-approval-edit', null);
+          for (const c of sc.commands) { const pw = preApprovalBashWrites(c, proj); const hit = pw.rels.find(outsideMurba) || (pw.root ? '프로젝트 루트' : pw.unknown[0]); if (hit) block(`${PRE_REASON}(스크립트 ${rel} 안 명령이 ${hit}를 바꿈)`, 'pre-approval-edit', null); }
+        }
         for (const w of sc.writes) for (const v of pathVariants(proj, w)) {
           if (isStateFile(v)) block(`스크립트(${rel})가 ${v}을 씀 — murba CLI로만 변경`, 'state-file', null);
           if (name === 'builder' && isTestPath(v)) block(`builder 스크립트(${rel})가 테스트 파일(${v})을 씀`, 'agent:builder', null);
@@ -260,19 +302,13 @@ function main() {
       }
     }
   }
-  // 2b) before approval the main session does not change project sources (spec and AC are approved first).
-  //     Investigation runs are exempt (they write a report file). Subagents follow their own rules below.
-  const planType = runPlanType(proj); // null when run-plan.json is missing → rule not applied
-  if (!name && PRE_APPROVAL.includes(st.phase) && planType && planType !== 'investigation') {
-    const reason = '승인 전에는 소스를 고치지 않는다. 기획서(.murba/spec.md)와 AC를 먼저 승인받는다';
-    const outsideMurba = rel => !!rel && !path.isAbsolute(rel) && !/^\.\.(\/|$)/.test(rel) && !relIs(rel, '.murba') && !relUnder(rel, '.murba');
-    if (WRITE_TOOLS.includes(tool)) for (const rel of toolRels(proj, tool, ti)) if (outsideMurba(rel)) block(`${reason}(${rel})`, 'pre-approval-edit', null);
+  // 2b) before approval nobody changes project sources (main session and subagents); investigation runs are exempt.
+  if (preActive) {
+    if (WRITE_TOOLS.includes(tool)) for (const rel of toolRels(proj, tool, ti)) if (outsideMurba(rel) && rel !== '') block(`${PRE_REASON}(${rel})`, 'pre-approval-edit', null);
     if (tool === 'Bash') {
-      const cmd = String(ti.command || '');
-      // git arguments are branch names or refs here (e.g. `git checkout -b feat/x`), not file writes
-      const gitArgs = new Set();
-      for (const sg of walkSegments(cmd, proj).segs) if (sg.c0 === 'git') for (const a of sg.words.slice(1)) if (!a.startsWith('-')) for (const v of pathVariants(proj, a, sg.cwd)) gitArgs.add(v);
-      for (const rel of bashWriteRels(cmd, proj)) if (outsideMurba(rel) && !gitArgs.has(rel)) block(`${reason}(Bash 쓰기: ${rel})`, 'pre-approval-edit', null);
+      const pw = preApprovalBashWrites(String(ti.command || ''), proj);
+      const hit = pw.rels.find(outsideMurba) || (pw.root ? '프로젝트 루트' : null) || (pw.unknown.length ? `${pw.unknown[0]}(대상 불명)` : null);
+      if (hit) block(`${PRE_REASON}(Bash 쓰기: ${hit})`, 'pre-approval-edit', null);
     }
   }
   // 3) agent rules

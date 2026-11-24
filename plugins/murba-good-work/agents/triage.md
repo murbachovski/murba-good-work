@@ -21,6 +21,7 @@ Read ${CLAUDE_PLUGIN_ROOT}/assets/worker.md first.
   - 결과물이 보고서뿐 → `investigation` (읽기 전용, build·browser 단계 `n/a`)
   - 동작 보존 → `refactor` (기존 테스트 전부 통과가 조건)
 - `scope_mode`: `expand` / `selective` / `hold` / `reduce`. 기본 `hold`
+- `risky`: 사용자가 되돌릴 수 없는 작업(삭제·DB 초기화·DROP·force push·배포·게시)이나 비밀 노출을 요청하면 `true`, 아니면 `false`. 이 값과 `task_type`은 grill로 넘어갈 때 원장에 고정되어 바꿀 수 없다
 - 화면(HTML·웹 UI)이 있으면 browser 단계 `standard`, 없으면 `n/a: 화면 없음`
 - 단계 생략은 반드시 `"n/a: <사유>"` 문자열로
 
@@ -29,6 +30,7 @@ Read ${CLAUDE_PLUGIN_ROOT}/assets/worker.md first.
 {
   "task_type": "feature",
   "scope_mode": "hold",
+  "risky": false,
   "not_in_scope": ["..."],
   "phases": {
     "grill": "standard", "spec-review": "standard", "setup": "standard",

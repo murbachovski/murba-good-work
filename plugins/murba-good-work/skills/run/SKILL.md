@@ -32,8 +32,8 @@ git checkout -b feat/<짧은-slug>          # git 저장소가 아니면 git ini
 ## 단계 표 (상세 절차는 references/)
 | phase | 할 일 | 담당 | 떠나기 조건 |
 |---|---|---|---|
-| triage | `murba-good-work:triage`에 요청 전달 → 응답의 JSON을 `.murba/run-plan.json`으로 저장 | triage | run-plan.json |
-| grill | 사용자 요청 원문과 사전 답변을 그대로 `.murba/brief.md`에 저장 → **grill 스킬** 실행 → `.murba/spec.md` 작성(AC 줄 형식은 아래) → `murba ac sync` | 나 | spec.md |
+| triage | `murba-good-work:triage`에 요청 전달 → 응답의 JSON(`task_type`, `risky` 포함)을 `.murba/run-plan.json`으로 저장. `murba phase grill`에서 이 두 값이 원장에 고정된다 | triage | run-plan.json |
+| grill | 사용자 요청 원문과 사전 답변을 그대로 `.murba/brief.md`에 저장 → **grill 스킬** 실행 → `.murba/spec.md` 작성(AC 줄 형식은 아래) → `murba ac sync` | 나 | spec.md, brief.md |
 | spec-review | `murba-good-work:spec-reviewer`에 spec·brief 경로만 전달(요구 → AC 대응 검사 포함) → 응답을 `.murba/reports/spec-reviewer/review.md`로 저장 | spec-reviewer | review.md |
 | revise | 증명된 지적만 반영, 나머지는 보류 기록. **요구 → AC 차단 지적은 반드시 AC로 반영**(요구를 약하게 바꾸지 않는다). AC 사이 진짜 선후관계는 `[after:AC-xxx]`로 표시. `.murba/ac-test-map.md` 작성. `murba ac sync` | 나 | spec.md, ac-test-map.md |
 | approve | 대화형: 기획서+대응표 요약을 보여주고 AskUserQuestion으로 **1회 승인** + 그동안 쌓인 결정 큐 질문. 승인 → `murba approve`를 **직접 Bash로**(스크립트·래퍼 안 금지). hook이 사람 확인 창을 띄우고, 확인 없이 실행되면 `APPROVE_NEEDS_HUMAN`. headless: `murba approve`. 거부되면(사전 승인 없음) 사용자에게 묻지 말고 `murba report`로 보고서를 쓰고 '승인 대기'로 끝낸다 | 사용자 | @approved |
@@ -45,7 +45,7 @@ git checkout -b feat/<짧은-slug>          # git 저장소가 아니면 git ini
 
 AC 줄 형식(spec.md): `- AC-001 [browser] [after:AC-000] WHEN <조건> THE SYSTEM SHALL <동작>` — `[browser]`는 화면 확인이 필요한 AC에만. `[after:AC-xxx]`는 그 AC가 정말 다른 AC 구현을 전제할 때만(승인 전 grill/revise에서 붙인다). `murba ac next`가 이 순서를 지킨다.
 
-11. **작은 구현 작업도 파이프라인을 탄다.** 기획서는 짧게(AC 1~3개) 쓰되 승인·테스트 선작성·판정은 생략하지 않는다. `--skip`은 조사 작업과, 실행하지 않은 위험 요청(`murba decide irreversible` 기록 후)에만 쓴다. CLI가 그 밖의 생략을 거부한다.
+11. **작은 구현 작업도 파이프라인을 탄다.** 기획서는 짧게(AC 1~3개) 쓰되 승인·테스트 선작성·판정은 생략하지 않는다. `--skip`은 조사 작업과 위험 요청(triage가 run-plan에 `risky: true`로 표시, grill로 넘어갈 때 고정)에만 쓴다. CLI가 그 밖의 생략을 거부한다. 승인·테스트 잠금 전에 구현 파일을 고치면 `murba approve`/`lock-tests`가 `SOURCE_CHANGED_BEFORE_TESTS`로 거부한다.
 12. **사용자가 요청한 산출물은 `.murba/` 밖에 둔다**(스크립트·보고서·출력 파일). `.murba/`는 원장 전용이고 git에서 제외된다. 조사 결과는 사용자가 정한 경로, 없으면 프로젝트 루트 `INVESTIGATION.md`에 쓰고 `.murba/reports/`에는 그 경로만 적는다.
 
 ## 작업 유형별 진행 (run-plan.json의 task_type)

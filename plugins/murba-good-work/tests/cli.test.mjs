@@ -203,10 +203,10 @@ test('review#2: --skip cannot bypass approval or test lock', () => {
   assert.equal(readState(p).phase, 'triage');
   write(p, '.murba/run-plan.json', JSON.stringify({ task_type: 'feature' }));
   assert.equal(m(p, ['phase', 'qa', '--skip', 'x']).code, 2);
-  // 구현 작업은 report로도 건너뛸 수 없다(예비 비교 결함). 위험 요청은 irreversible 결정 기록 후에만
+  // 구현 작업은 report로도 건너뛸 수 없다(예비 비교 결함). v0.1.1 2차: decide irreversible로도 풀리지 않는다
   assert.equal(m(p, ['phase', 'report', '--skip', '위험 요청']).code, 2);
   assert.equal(m(p, ['decide', 'irreversible', 'DB 삭제 요청', '--why', '확인 필요']).code, 0);
-  assert.equal(m(p, ['phase', 'report', '--skip', '위험 요청']).code, 0);
+  assert.equal(m(p, ['phase', 'report', '--skip', '위험 요청']).code, 2);
   // 승인 없이 approve 뒤 단계에 있으면 ac sync 거부
   const q = tmpProj();
   setState(q, s => { s.phase = 'setup'; });
@@ -394,10 +394,50 @@ test('v0.1.1: implementation tasks cannot skip the pipeline (pilot defect); inve
   write(inv, '.murba/run-plan.json', JSON.stringify({ task_type: 'investigation' }));
   assert.equal(m(inv, ['phase', 'report', '--skip', '조사']).code, 0);
   const risky = tmpProj();
-  write(risky, '.murba/run-plan.json', JSON.stringify({ task_type: 'bug-fix' }));
-  m(risky, ['decide', 'irreversible', 'DROP 요청', '--why', '확인 필요']);
+  write(risky, '.murba/run-plan.json', JSON.stringify({ task_type: 'bug-fix', risky: true }));
   assert.equal(m(risky, ['phase', 'build', '--skip', 'x']).code, 2, 'risky skip only to report');
   assert.equal(m(risky, ['phase', 'report', '--skip', '위험 요청']).code, 0);
+  assert.equal(readState(risky).risky, true);
+});
+
+test('v0.1.1 r2: skip after approval, guard/fake irreversible rows, rewritten run-plan — all refused', () => {
+  // reviewer #1: approve 후 report로 건너뛰기(평가·qa 생략)
+  const a = tmpProj(); write(a, '.murba/run-plan.json', JSON.stringify({ task_type: 'bug-fix' })); toApprove(a);
+  assert.equal(m(a, ['approve', '--human']).code, 0);
+  assert.equal(m(a, ['phase', 'report', '--skip', '작은 수정']).code, 2);
+  assert.equal(readState(a).task_type, 'feature'); // toApprove가 쓴 run-plan이 grill에서 고정됨
+  // reviewer #2·#3: guard가 남긴 irreversible 행이나 가짜 decide는 생략을 풀지 않는다
+  const b = tmpProj(); write(b, '.murba/run-plan.json', JSON.stringify({ task_type: 'bug-fix' }));
+  fs.appendFileSync(path.join(b, '.murba/decisions.tsv'), `${new Date().toISOString()}\tbuild\tirreversible\tgit reset --hard 차단\tguard 규칙 git-discard\t\t\n`);
+  m(b, ['decide', 'irreversible', '가짜', '--why', 'x']);
+  assert.equal(m(b, ['phase', 'report', '--skip', 'x']).code, 2);
+  // reviewer #9: grill 뒤 run-plan을 investigation으로 고쳐도 원장 값은 그대로
+  const c = tmpProj(); write(c, '.murba/run-plan.json', JSON.stringify({ task_type: 'bug-fix' }));
+  assert.equal(m(c, ['phase', 'grill']).code, 0);
+  write(c, '.murba/run-plan.json', JSON.stringify({ task_type: 'investigation', risky: true }));
+  assert.equal(m(c, ['phase', 'report', '--skip', '조사']).code, 2);
+  assert.equal(readState(c).task_type, 'bug-fix');
+});
+
+test('v0.1.1 r2: source edited before tests → approve and lock-tests refused (any route)', () => {
+  const p = tmpProj({ murba: false });
+  write(p, 'src/cart.js', 'export const f = x => x > 1;\n'); write(p, 'test/old.test.js', '// seed\n');
+  spawnSync('git', ['add', '-A'], { cwd: p }); spawnSync('git', ['-c', 'user.email=t@e', '-c', 'user.name=t', 'commit', '-qm', 'seed'], { cwd: p });
+  assert.equal(m(p, ['init']).code, 0);
+  write(p, '.murba/run-plan.json', JSON.stringify({ task_type: 'bug-fix' }));
+  toApprove(p);
+  write(p, 'src/cart.js', 'export const f = x => x >= 1;\n'); // 테스트보다 먼저 고침(Bash·스크립트·서브에이전트 어느 경로든 결과는 같다)
+  const r = m(p, ['approve', '--human']);
+  assert.equal(r.code, 2, r.out); assert.match(r.err, /SOURCE_CHANGED_BEFORE_TESTS: src\/cart\.js/);
+  write(p, 'src/cart.js', 'export const f = x => x > 1;\n'); // 되돌리면 통과
+  assert.equal(m(p, ['approve', '--human']).code, 0);
+  // setup에서 설정 파일·테스트를 만드는 정상 흐름은 lock-tests 통과, 구현 파일을 먼저 고치면 거부
+  setState(p, s => { s.phase = 'test-write'; });
+  write(p, 'package.json', '{"scripts":{"test":"node --test"}}'); write(p, 'vitest.config.mjs', 'export default {}'); write(p, 'test/cart.test.js', '// AC-001\n');
+  assert.equal(m(p, ['lock-tests', 'test/**']).code, 0);
+  write(p, 'lib/new.js', 'x'); // 새 구현 파일(추적 안 됨)
+  const r2 = m(p, ['lock-tests', 'test/**']);
+  assert.equal(r2.code, 2); assert.match(r2.err, /lib\/new\.js/);
 });
 
 test('v0.1.1: init creates per-agent report folders', () => {

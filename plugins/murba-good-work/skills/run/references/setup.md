@@ -19,7 +19,7 @@
    ```
    `.gitignore`에 `.claude/settings.local.json` 있는지 확인.
 6. `.murba/init.sh` — 앱을 기동하고 스모크 1개 실행하는 스크립트(dev 서버 없으면 `npm test -- --help` 수준의 러너 동작 확인). `chmod +x`.
-7. **권한 점검**: `sh .murba/init.sh` 를 직접 실행(종료 코드는 도구 결과). 권한 프롬프트·실패가 나면 원인을 고치고, 못 고치면 `murba decide irreversible "권한 부족: …"` 후 report로.
+7. **권한 점검**: `sh .murba/init.sh` 를 직접 실행(종료 코드는 도구 결과). 권한 프롬프트·실패가 나면 원인을 고치고, 못 고치면 `murba decide user-direction "권한 부족: …"`, `murba report`로 보고서를 쓰고 멈춘다(단계 생략은 CLI가 거부한다).
 8. 커밋: `git add -A` → `git commit -m "chore: setup test runner and verification"` (명령 2번. `.murba/`는 gitignore)
 9. handoff → `murba phase test-write`
 

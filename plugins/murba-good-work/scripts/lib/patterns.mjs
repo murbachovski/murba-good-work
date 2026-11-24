@@ -580,8 +580,21 @@ export function analyzeBash(cmd, proj = null, depth = 0) {
         const has = re => opts.some(t => (t.startsWith('--') ? false : re.test(t.slice(1))));
         const dry = opts.some(t => t === '--dry-run' || (!t.startsWith('--') && /n/.test(t.slice(1))));
         const force = has(/f/) || opts.includes('--force');
-        if (!dry && force && (has(/[dxX]/))) return deny('git clean -f(d/x)(추적 안 된 파일을 되돌릴 수 없게 지움)', 'git-discard');
+        if (!dry && force) return deny('git clean -f(추적 안 된 파일을 되돌릴 수 없게 지움)', 'git-discard');
       }
+      // discarding all uncommitted edits in the tree, or stashed work
+      const rest = w.slice(si + 1);
+      const WHOLE_TREE = ['.', './', ':/', ':(top)', '*', ':/*'];
+      if (sub === 'checkout' && !rest.some(t => ['-b', '-B', '--orphan'].includes(t))) {
+        const dd = rest.indexOf('--');
+        const paths = dd >= 0 ? rest.slice(dd + 1) : rest.filter(t => !t.startsWith('-'));
+        if (paths.some(t => WHOLE_TREE.includes(t))) return deny('git checkout .(커밋 안 된 변경 전부를 되돌릴 수 없게 버림)', 'git-discard');
+      }
+      if (sub === 'restore' && !(rest.includes('--staged') && !rest.some(t => ['--worktree', '-W'].includes(t)))) {
+        const paths = []; for (let k = 0; k < rest.length; k++) { const t = rest[k]; if (['-s', '--source'].includes(t)) { k++; continue; } if (!t.startsWith('-')) paths.push(t); }
+        if (paths.some(t => WHOLE_TREE.includes(t))) return deny('git restore .(커밋 안 된 변경 전부를 되돌릴 수 없게 버림)', 'git-discard');
+      }
+      if (sub === 'stash' && ['drop', 'clear'].includes(rest[0])) return deny(`git stash ${rest[0]}(보관한 변경을 되돌릴 수 없게 지움)`, 'git-discard');
       if (sub === 'tag') {
         const rest = w.slice(si + 1);
         const listMode = rest.some(t => TAG_LIST_OPTS.includes(t.split('=')[0]) || /^-n\d*$/.test(t));
@@ -671,7 +684,7 @@ function publishDeploy(c0, w) {
 }
 
 // Paths one segment writes to (best effort): redirects, tee, sed -i, cp/mv dest, rm targets, touch, dd of=, sponge, inline code.
-function segWriteTargets(text, w, heredocBodies = []) {
+export function segWriteTargets(text, w, heredocBodies = []) {
   const out = [...redirectTargets(text)];
   if (!w.length) return out;
   const c0 = base(w[0]);
