@@ -5,6 +5,13 @@
 - **문서 버전**(이 저장소 기록용): 설계 단계는 `v0.0.x`
 - **플러그인 버전**(`plugins/murba-good-work/.claude-plugin/plugin.json`의 `version`): SemVer, 첫 동작 버전 `0.1.0`
 
+## [Unreleased]
+### 바뀜
+- guard: 프로젝트가 `/tmp` 아래일 때(Linux) 임시 폴더 삭제 오탐 수정, 임시 폴더 안 링크가 가리키는 실제 경로(예: 홈)로 재귀 삭제 판정
+- 플러그인 아이콘, GitHub Actions CI(Node 18·20·22 + validate), 테스트 190개(리뷰어 재현 입력 회귀 포함)
+### 검증 상태
+- 단위 테스트·CI만 통과. 시나리오 회귀 세트(과제 11개)는 v0.1.1 변경과 함께 1회 실행 예정(사용자 결정 2026-11-24). marketplace 설치는 기본 브랜치(main)를 받으므로 v0.1.0과 다를 수 있음
+
 ## [플러그인 0.1.0] - 2026-11-24
 ### 추가
 - 상태 전이표(`assets/state-machine.json`) + 원장 CLI `murba`(init·status·phase·ac·fix-round·approve·lock-tests·check-tests·decide·handoff·evidence-run·budget·report)

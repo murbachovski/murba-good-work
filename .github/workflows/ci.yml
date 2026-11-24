@@ -32,7 +32,7 @@ jobs:
         with:
           node-version: 22
       - name: install Claude Code CLI
-        run: npm install -g @anthropic-ai/claude-code
+        run: npm install -g @anthropic-ai/claude-code@2.1.316
       - name: validate plugin
         run: claude plugin validate ./plugins/murba-good-work --strict
       - name: validate marketplace
