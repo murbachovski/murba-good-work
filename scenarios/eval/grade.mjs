@@ -91,7 +91,7 @@ async function gradeOne(runDir, id) {
 아래 기대 결과 각 줄을 네가 직접 실행·확인해서 판정하라. 에이전트가 만든 테스트를 믿지 말고, 코드를 직접 불러 새 입력으로 확인하고, seed와 비교하라. 파일을 고치지 마라(임시 스크립트는 /tmp가 아니라 ./_grader/ 아래에만).
 ${manual.map(v => `${v.i}. ${v.line}`).join('\n')}
 마지막 줄에 JSON 배열만 출력: [{"i":번호,"verdict":"PASS"|"FAIL"|"UNCLEAR","evidence":"명령→결과 또는 파일:줄"}]`;
-    const r = await claude(prompt, B, MODEL, ['Read', 'Glob', 'Grep', 'Write', 'Bash(node:*)', 'Bash(npm test:*)', 'Bash(ls:*)', 'Bash(cat:*)', 'Bash(diff:*)', 'Bash(grep:*)', 'Bash(head:*)', 'Bash(wc:*)', 'Bash(shasum:*)', 'Bash(find:*)', 'Bash(mkdir:*)', 'Bash(npx playwright:*)', 'Bash(npm install:*)', 'Bash(npm ci:*)']);
+    const r = await claude(prompt, B, MODEL, ['Read', 'Glob', 'Grep', 'Write', 'Bash(node:*)', 'Bash(npm test:*)', 'Bash(ls:*)', 'Bash(cat:*)', 'Bash(diff:*)', 'Bash(grep:*)', 'Bash(head:*)', 'Bash(wc:*)', 'Bash(shasum:*)', 'Bash(find:*)', 'Bash(mkdir:*)', 'Bash(npx playwright:*)', 'Bash(npm install --ignore-scripts:*)', 'Bash(npm ci --ignore-scripts:*)']);
     graderCost += r.cost;
     const arr = lastJson(r.text);
     fs.writeFileSync(path.join(B, '_grader_raw.txt'), r.text);
