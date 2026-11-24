@@ -32,7 +32,7 @@
 - **원장 검사**(status·report·init·help 제외): `state.sha256`과 state.json이 어긋나면 `LEDGER_TAMPERED`(종료 코드 2, 이벤트 1회). status·report는 실행하고 ❌로 표시. 변조된 원장에 hook이 쓰더라도 해시는 갱신하지 않는다
 | 명령 | 동작 |
 |---|---|
-| `murba init [--headless] [--auto-approve] [--force]` | `.murba/` 생성(에이전트별 `reports/<이름>/` 포함), state 초기화(phase=triage), `.murba/.gitignore` 작성, 기준선 기록(`base_sha`=git HEAD, `base_dirty`=init 때 이미 바뀐 구현 파일의 내용 해시). 사전 승인(`MURBA_HEADLESS=1` 또는 `--auto-approve`)은 이때만 기록. 재초기화로 사전 승인을 새로 켤 수 없다(이전 원장에 없었거나 원장 변조 시 종료 코드 2). `--force` 재초기화는 승인·테스트 잠금을 지우고 user-direction 결정으로 기록(새 실행: 기준선을 다시 잡음). 대화형 원장을 headless·자동 승인으로 재초기화하면 거부(종료 코드 2) |
+| `murba init [--headless] [--auto-approve] [--force]` | `.murba/` 생성(에이전트별 `reports/<이름>/` 포함), state 초기화(phase=triage), `.murba/.gitignore` 작성, 기준선 기록(`base_sha`=git HEAD, `base_dirty`=init 때 이미 바뀐 구현 파일·`.gitignore`의 내용 해시, `base_outer_ignore`=모노레포 하위 폴더일 때 상위 폴더 `.gitignore`의 내용 해시). 사전 승인(`MURBA_HEADLESS=1` 또는 `--auto-approve`)은 이때만 기록. 재초기화로 사전 승인을 새로 켤 수 없다(이전 원장에 없었거나 원장 변조 시 종료 코드 2). `--force` 재초기화는 승인·테스트 잠금을 지우고 user-direction 결정으로 기록(새 실행: 기준선을 다시 잡음). 대화형 원장을 headless·자동 승인으로 재초기화하면 거부(종료 코드 2) |
 | `murba status [--json]` | phase, 다음 가능 단계, 남은 조건, AC 요약 |
 | `murba phase <next>` | 현재 phase의 requires 확인 → 전이표 확인 → 기록. `setup` 진입 시 `auto=true`. build·evaluate·fix·qa·browser 진입은 승인 + 테스트 잠금 필요. 승인 후 spec.md가 바뀌었으면 `SPEC_EDITED`(종료 코드 2). 고정 테스트가 바뀌었으면 모든 전이에서 `TESTS_CHANGED`(종료 코드 2) |
 | `murba phase <target> --skip "<사유>"` | 기본 순서(`chain`)상 앞의 단계로 건너뜀. 지나간 단계는 `state.skipped[단계]=사유`로 기록하고 requires 검사 안 함. `report` 너머로는 불가. **모든 생략**(어느 단계·어느 목표든)은 원장에 고정된 과제 성격이 `task_type=investigation`이거나 `risky=true`(목표는 `report`만)일 때만. 과제 성격은 triage를 떠날 때(`murba phase grill`) run-plan에서 `state.task_type`·`state.risky`로 고정되고 이후 run-plan 수정은 무시한다. `decisions.tsv`의 irreversible 행은 생략을 허가하지 않는다. 구현 작업은 작아도 생략 불가(AC 1개로 진행). 승인 후 단계 진입 조건은 생략으로도 못 넘는다. 보고서에 ⏸ 행 |
@@ -47,8 +47,8 @@
 | `murba lock-tests <glob...>` | 테스트 파일 sha256을 test_hashes에 기록. setup·test-write 단계에서만 |
 | `murba lock-tests --amend <glob...> --reason "<r>"` | build·fix·evaluate에서, **이미 고정된** 테스트 자체의 결함을 test-writer가 고친 뒤 재고정. taste 결정 `TEST_AMENDED: <파일>` + 보고서 ⚠️ |
 | `murba check-tests` | 해시 비교, 바뀐 파일 있으면 종료 코드 2 + 목록 |
-| (게이트) `SOURCE_CHANGED_BEFORE_TESTS` | `murba approve`(조사 제외)와 `murba lock-tests`(--amend 제외)는 `base_sha` 이후 바뀐 구현 파일이 있으면 종료 코드 2. 구현 파일 = impl_globs 또는 코드 확장자, 테스트·설정·`.murba/`·`.gitignore`와 통째로 추적 안 된 의존성 이름 폴더(`node_modules`·`dist` 등) 제외, 추적 안 된 새 파일·삭제·이름 바꾸기(옛 경로) 포함, 경로는 프로젝트 폴더 기준. init 때 이미 바뀐 파일은 내용이 `base_dirty`와 같으면 제외(되돌려도 변경). 어떤 경로(Bash·스크립트·서브에이전트)로 고쳤든 결과로 잡는다. git 저장소가 아니거나 init 때 커밋이 없거나 git이 없으면 검사 생략(이벤트 기록). 기준 커밋이 있는데 git이 실패하면 `SOURCE_GATE_ERROR`로 종료 코드 2 |
-| (게이트) `SOURCE_CHANGED_IN_SKIPPED_RUN` | 생략 경로에 build가 있거나(build에서 출발하는 생략 포함), 미검증 AC가 남은 채 evaluate가 있으면 `--skip`과 그 실행의 `report → done`에서 위와 같은 규칙으로 구현 파일 변경이 있으면 종료 코드 2(승인 여부와 무관). `report → build` 재작업은 build 이후의 생략 기록을 지운다 |
+| (게이트) `SOURCE_CHANGED_BEFORE_TESTS` | `murba approve`(조사 제외)와 `murba lock-tests`(--amend 제외)는 `base_sha` 이후 바뀐 구현 파일이 있으면 종료 코드 2. 구현 파일 = impl_globs 또는 코드 확장자, 테스트·설정·`.murba/`·루트 `.gitignore`와 통째로 추적 안 된 버릴 수 있는 폴더(의존성·캐시 이름 `node_modules`·`dist`·`.mypy_cache`·`htmlcov` 등, 또는 `pyvenv.cfg`·`CACHEDIR.TAG`·`# Created by …` `.gitignore`가 있는 폴더) 제외, assume-unchanged·skip-worktree 표시 파일도 내용 비교, 추적 안 된 새 파일·삭제·이름 바꾸기(옛 경로) 포함, 경로는 프로젝트 폴더 기준. init 때 이미 바뀐 파일은 내용이 `base_dirty`와 같으면 제외(되돌려도 변경). 어떤 경로(Bash·스크립트·서브에이전트)로 고쳤든 결과로 잡는다. git 저장소가 아니거나 init 때 커밋이 없거나 git이 없으면 검사 생략(이벤트 기록). 기준 커밋이 있는데 git이 실패하면 `SOURCE_GATE_ERROR`로 종료 코드 2 |
+| (게이트) `SOURCE_CHANGED_IN_SKIPPED_RUN` | 생략 경로에 build가 있거나(build에서 출발하는 생략 포함), 미검증 AC가 남은 채 evaluate가 있으면 `--skip`과 그 실행의 `report → done`에서 위와 같은 규칙으로 구현 파일 변경이 있으면 종료 코드 2(승인 여부와 무관). `report → build` 재작업은 build 이후의 생략 기록을 지운다. 이 게이트는 `.gitignore` 변경도 변경으로 본다: 바뀐 추적 `.gitignore`, 자기 자신을 무시하는 것까지 포함한 새 `.gitignore`(단 바깥 규칙으로 이미 무시된 폴더나 추적 파일 없는 버릴 수 있는 폴더 안은 제외), 모노레포 상위 폴더 `.gitignore`(`base_outer_ignore`와 비교). init 때 이미 바뀐 것은 기준선 |
 | `murba decide <mechanical\|taste\|user-direction\|irreversible> "<결정>" --why "<이유>" [--cost "<틀렸을 때 비용>"] [--evidence <p>]` | decisions.tsv 추가 |
 | `murba handoff <phase>` | stdin을 handoff/<phase>.md로 저장 |
 | `murba evidence-run` | `.murba/evidence/run-<UTC>/` 생성, 경로를 `.murba/evidence/CURRENT`에 쓰고 출력. 테스트는 `MURBA_EVIDENCE_DIR` 환경변수가 없으면 `CURRENT` 파일 경로를 쓴다(명령 앞 환경변수 지정은 권한 거부되므로) |
@@ -58,7 +58,7 @@
 ## hook 입력·출력
 - 비상 해제: 사람이 실행할 때 환경변수 `MURBA_DISABLE=1`이면 모든 hook no-op(프로젝트 안 파일로는 끌 수 없음. 차단 메시지에 언급 금지)
 - SessionStart: `.murba/state.json` 있으면 `hookSpecificOutput.additionalContext` 2,000자 이하(첫 줄·끝 줄에 phase와 다음 행동)
-- PreToolUse: 차단은 `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"..."}}`
+- PreToolUse: 차단은 `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"..."}}`. matcher에 `ScheduleWakeup|CronCreate` 포함: murba 실행 중(phase가 done 아님)에는 예약 호출을 거부(서브에이전트 완료는 턴 종료 뒤 알림으로 옴). 승인 전 메인 세션의 쓰기 차단은 프로젝트 `.gitignore`와 상위 폴더 `../.gitignore`에도 적용
 - Stop: 차단은 최상위 `{"decision":"block","reason":"..."}`. exit 2 사용 금지. headless(`state.mode=headless`)면 승인 전 단계에서도 작동: 질문으로 끝나거나 report.md가 없으면 차단(단계당 3·전체 12회 상한 공유). 보고서가 있고 approve/report 단계면 통과
 - `agent_type` 값: `murba-good-work:builder` 등(접두 포함). 메인 세션이면 없음
 - 에이전트 이름: `triage`, `spec-reviewer`, `test-writer`, `builder`, `evaluator`, `pr-reviewer`

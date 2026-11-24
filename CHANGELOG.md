@@ -7,6 +7,19 @@
 
 ## [Unreleased]
 
+## [플러그인 0.1.3] - 2026-11-24
+### 바뀜 ([ADR 0006](docs/decisions/0006-no-wakeups-and-gitignore.md))
+- guard: 승인 전 메인 세션의 프로젝트 `.gitignore` 쓰기도 거부(무시 줄로 새 파일을 소스 변경 게이트에서 숨길 수 있었음)
+- 생략 게이트(`SOURCE_CHANGED_IN_SKIPPED_RUN`): `.gitignore` 변경도 변경으로 봄. 자기 자신을 무시하는 새 `.gitignore` 포함, 모노레포 상위 폴더 `.gitignore`도 init 때 해시와 비교. 이미 무시된 폴더나 추적 파일 없는 도구 캐시·venv·coverage 보고서 폴더(이름, `pyvenv.cfg`·`CACHEDIR.TAG`·`# Created by …`) 안은 제외, init 때 이미 바뀐 것은 기준선
+- guard: 승인 전 `../.gitignore` 쓰기도 거부
+- 두 소스 변경 게이트: `assume-unchanged`·`skip-worktree` 표시된 추적 파일도 내용 비교
+- guard: murba 실행 중(done 전) `ScheduleWakeup`·`CronCreate` 거부(t093에서 서브에이전트 대기에 예약 호출 4회). hook matcher에 추가
+### 검증
+- 테스트 235개 중 234 통과, 1 건너뜀(로컬 rg). 변경마다 되돌린 뮤테이션 17종에서 새 테스트 실패 확인
+- 독립 리뷰 2회: 1차 차단 2건(자기 무시 `.gitignore`, init 전 `.gitignore` 오탐)·중요 3건, 2차 차단 2건(추적 폴더 안 새 `.gitignore`, 도구 캐시 오탐)·중요 3건, 3차(마지막) 차단 1건(모노레포 하위 폴더의 표시 파일이 게이트 오류를 냄)·중요 3건·경미 일부 반영
+- 실제 실행(n13·n10·t093·n01, `--isolate`, 블라인드 채점): `218cd29`·`aca3684`·`264f86d` 12건 모두 정답·done, 예약 호출 0, 게이트 오탐 0(guard 거부는 test-writer·evaluator 역할 규칙의 의도된 차단만). 실행 $10.06, 채점 $0.24
+- 함께 관찰(범위 밖): test-writer·evaluator 서브에이전트 없이 메인 세션이 판정을 기록한 실행이 있음(t093 등). CLI가 강제하지 않음
+
 ## [플러그인 0.1.2] - 2026-11-24
 ### 바뀜 ([ADR 0005](docs/decisions/0005-skipped-runs-and-baseline.md))
 - `murba init`이 대상 저장소 `.gitignore`를 만들거나 고치지 않음. `.murba/.gitignore`(`*`)로 제외(v0.1.1 확장 비교: murba 25개 중 20개에서 사용자 커밋에 섞임, n13 실패)
