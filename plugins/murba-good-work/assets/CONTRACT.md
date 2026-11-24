@@ -47,8 +47,8 @@
 | `murba lock-tests <glob...>` | 테스트 파일 sha256을 test_hashes에 기록. setup·test-write 단계에서만 |
 | `murba lock-tests --amend <glob...> --reason "<r>"` | build·fix·evaluate에서, **이미 고정된** 테스트 자체의 결함을 test-writer가 고친 뒤 재고정. taste 결정 `TEST_AMENDED: <파일>` + 보고서 ⚠️ |
 | `murba check-tests` | 해시 비교, 바뀐 파일 있으면 종료 코드 2 + 목록 |
-| (게이트) `SOURCE_CHANGED_BEFORE_TESTS` | `murba approve`(조사 제외)와 `murba lock-tests`(--amend 제외)는 `base_sha` 이후 바뀐 구현 파일이 있으면 종료 코드 2. 구현 파일 = impl_globs 또는 코드 확장자, 테스트·설정·의존성 폴더(`node_modules` 등)·`.murba/`·`.gitignore` 제외, 추적 안 된 새 파일·삭제·이름 바꾸기(옛 경로) 포함, 경로는 프로젝트 폴더 기준. init 때 이미 바뀐 파일은 내용이 `base_dirty`와 같으면 제외(되돌려도 변경). 어떤 경로(Bash·스크립트·서브에이전트)로 고쳤든 결과로 잡는다. git 저장소가 아니거나 init 때 커밋이 없으면 검사 생략(이벤트 기록) |
-| (게이트) `SOURCE_CHANGED_IN_SKIPPED_RUN` | build를 건너뛰는 `--skip`과, build를 건너뛴 실행의 `report → done`은 위와 같은 규칙으로 구현 파일 변경이 있으면 종료 코드 2(승인 여부와 무관) |
+| (게이트) `SOURCE_CHANGED_BEFORE_TESTS` | `murba approve`(조사 제외)와 `murba lock-tests`(--amend 제외)는 `base_sha` 이후 바뀐 구현 파일이 있으면 종료 코드 2. 구현 파일 = impl_globs 또는 코드 확장자, 테스트·설정·`.murba/`·`.gitignore`와 추적 안 된 의존성 폴더(`node_modules` 등) 제외, 추적 안 된 새 파일·삭제·이름 바꾸기(옛 경로) 포함, 경로는 프로젝트 폴더 기준. init 때 이미 바뀐 파일은 내용이 `base_dirty`와 같으면 제외(되돌려도 변경). 어떤 경로(Bash·스크립트·서브에이전트)로 고쳤든 결과로 잡는다. git 저장소가 아니거나 init 때 커밋이 없으면 검사 생략(이벤트 기록). 기준 커밋이 있는데 git이 실패하면 `SOURCE_GATE_ERROR`로 종료 코드 2 |
+| (게이트) `SOURCE_CHANGED_IN_SKIPPED_RUN` | 생략 경로에 build가 있거나(build에서 출발하는 생략 포함), 미검증 AC가 남은 채 evaluate가 있으면 `--skip`과 그 실행의 `report → done`에서 위와 같은 규칙으로 구현 파일 변경이 있으면 종료 코드 2(승인 여부와 무관). `report → build` 재작업은 build 이후의 생략 기록을 지운다 |
 | `murba decide <mechanical\|taste\|user-direction\|irreversible> "<결정>" --why "<이유>" [--cost "<틀렸을 때 비용>"] [--evidence <p>]` | decisions.tsv 추가 |
 | `murba handoff <phase>` | stdin을 handoff/<phase>.md로 저장 |
 | `murba evidence-run` | `.murba/evidence/run-<UTC>/` 생성, 경로를 `.murba/evidence/CURRENT`에 쓰고 출력. 테스트는 `MURBA_EVIDENCE_DIR` 환경변수가 없으면 `CURRENT` 파일 경로를 쓴다(명령 앞 환경변수 지정은 권한 거부되므로) |

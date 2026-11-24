@@ -2,9 +2,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { tmpProj, murbaCli as m, readState, write } from './helpers.mjs';
+import { tmpProj, murbaCli as m, readState, write, setState } from './helpers.mjs';
 
 const git = (p, ...a) => spawnSync('git', ['-c', 'user.email=t@e', '-c', 'user.name=t', ...a], { cwd: p, encoding: 'utf8' });
 function seeded(files = { 'src/id.js': 'export const id = 1;\n', 'test/id.test.js': '// seed\n' }) {
@@ -177,15 +178,82 @@ test('v0.1.2 r1: commit during the run then init --force keeps the original base
   assert.equal(r.code, 2); assert.match(r.err, /src\/id\.js/);
 });
 
-test('v0.1.2 r1: no-commit repo records the real reason; ripgrep (if installed) does not list .murba/hidden', () => {
+test('v0.1.2 r1: no-commit repo records the real reason; ripgrep (if installed) does not list .murba/hidden', (t) => {
   const p = tmpProj();
   write(p, '.murba/run-plan.json', JSON.stringify({ task_type: 'investigation' }));
   assert.equal(m(p, ['phase', 'report', '--skip', '조사']).code, 0);
   assert.match(events(p), /source_gate_skipped.*no commit at init/);
   const rg = spawnSync('rg', ['--version']);
-  if (rg.status !== 0) return; // rg not installed: nothing to check
+  if (rg.status !== 0) { t.skip('rg not installed'); return; }
   const q = seeded(); m(q, ['init']);
   write(q, '.murba/hidden/h.test.js', 'HIDDEN_MARK\n'); write(q, 'src/x.js', 'HIDDEN_MARK\n');
   const out = spawnSync('rg', ['-l', 'HIDDEN_MARK'], { cwd: q, encoding: 'utf8' }).stdout;
   assert.match(out, /src\/x\.js/); assert.doesNotMatch(out, /\.murba/);
+});
+
+// ---- PR #12 review round 2 ----
+test('v0.1.2 r2: a large untracked dependency folder neither hides changes nor errors the gate open', () => {
+  const p = seeded(); m(p, ['init']);
+  write(p, '.murba/run-plan.json', JSON.stringify({ task_type: 'investigation' }));
+  const nm = path.join(p, 'node_modules');
+  for (let i = 0; i < 400; i++) { const d = path.join(nm, `pkg-with-a-long-enough-name-${i}`); fs.mkdirSync(d, { recursive: true }); for (let j = 0; j < 100; j++) fs.writeFileSync(path.join(d, `file-${j}.js`), ''); }
+  write(p, 'src/id.js', 'export const id = 2;\n');
+  const r = m(p, ['phase', 'report', '--skip', '조사']);
+  assert.equal(r.code, 2, r.out + r.err); assert.match(r.err, /SOURCE_CHANGED_IN_SKIPPED_RUN: src\/id\.js —/);
+  write(p, 'src/id.js', 'export const id = 1;\n');
+  assert.equal(m(p, ['phase', 'report', '--skip', '조사']).code, 0, '40k dependency files alone are not source');
+});
+
+test('v0.1.2 r2: tracked sources under folders named build/out/target are still source', () => {
+  const p = seeded({ 'src/build/compile.js': 'a\n', 'cmd/target/main.go': 'package main\n', 'test/t.test.js': '// seed\n' }); m(p, ['init']);
+  write(p, '.murba/run-plan.json', JSON.stringify({ task_type: 'investigation' }));
+  write(p, 'src/build/compile.js', 'b\n'); write(p, 'cmd/target/main.go', 'package main // x\n');
+  const r = m(p, ['phase', 'report', '--skip', '조사']);
+  assert.equal(r.code, 2); assert.match(r.err, /src\/build\/compile\.js/); assert.match(r.err, /cmd\/target\/main\.go/);
+});
+
+test('v0.1.2 r2: git failing with a base commit closes the gate', () => {
+  const p = seeded(); m(p, ['init']);
+  write(p, '.murba/run-plan.json', JSON.stringify({ task_type: 'investigation' }));
+  fs.renameSync(path.join(p, '.git'), path.join(p, '.git-moved')); // git now fails for this project
+  const r = m(p, ['phase', 'report', '--skip', '조사']);
+  assert.equal(r.code, 2); assert.match(r.err, /SOURCE_GATE_ERROR/);
+});
+
+test('v0.1.2 r2: risky run reworked through build after a report-only skip can finish; skipping evaluate with unverified ACs cannot', () => {
+  const H = { env: { MURBA_HEADLESS: '1' } };
+  const p = seeded(); m(p, ['init', '--headless', '--auto-approve'], H);
+  approveHeadless(p, { task_type: 'refactor', risky: true });
+  assert.equal(m(p, ['phase', 'report', '--skip', '위험 요청'], H).code, 0);
+  assert.ok(readState(p).skipped.build);
+  assert.equal(m(p, ['report'], H).code, 0);
+  const th = crypto.createHash('sha256').update(fs.readFileSync(path.join(p, 'test/id.test.js'))).digest('hex');
+  setState(p, s => { s.test_hashes = { 'test/id.test.js': th }; }); // tests locked earlier in the run
+  const rb = m(p, ['phase', 'build', '--reason', '안전한 부분 구현'], H); assert.equal(rb.code, 0, rb.err);
+  assert.equal(readState(p).skipped.build, undefined, 'rework clears skipped build and later');
+  write(p, 'src/id.js', 'export const id = 2;\n'); // implemented in build
+  // skipping from evaluate with an unverified AC is refused
+  setState(p, s => { s.phase = 'evaluate'; });
+  const r = m(p, ['phase', 'report', '--skip', '위험 요청'], H);
+  assert.equal(r.code, 2); assert.match(r.err, /src\/id\.js/);
+  // once every AC is VERIFIED the run can finish with its source change
+  setState(p, s => { for (const id of s.ac_order) s.ac[id].verdicts = [{ verdict: 'VERIFIED', final: true }]; s.phase = 'report'; });
+  const d = toDone(p);
+  assert.equal(d.code, 0, d.err);
+});
+
+test('v0.1.2 r2: re-init of a v0.1.1 ledger (no base_dirty) does not adopt run-time edits as baseline', () => {
+  const p = seeded(); m(p, ['init']);
+  setState(p, s => { delete s.base_dirty; });
+  write(p, 'src/id.js', 'export const id = 5;\n');
+  assert.equal(m(p, ['init', '--force']).code, 0);
+  assert.deepEqual(readState(p).base_dirty, {});
+});
+
+test('v0.1.2 r2: many untracked non-source files (git output over 1 MiB) do not trip the gate', () => {
+  const p = seeded(); m(p, ['init']);
+  write(p, '.murba/run-plan.json', JSON.stringify({ task_type: 'investigation' }));
+  for (let i = 0; i < 400; i++) { const d = path.join(p, 'data', `batch-with-a-long-enough-name-${i}`); fs.mkdirSync(d, { recursive: true }); for (let j = 0; j < 100; j++) fs.writeFileSync(path.join(d, `row-${j}.csv`), ''); }
+  const r = m(p, ['phase', 'report', '--skip', '조사']);
+  assert.equal(r.code, 0, r.err);
 });
