@@ -5,7 +5,7 @@
 
 ## 현재 상태
 - 단계: main = 플러그인 0.1.1(구현 작업 파이프라인 생략 금지, [ADR 0004](docs/decisions/0004-no-pipeline-skip-for-implementation.md)). 태그·Release는 v0.1.0까지. 보고서 [261124-v0.1.0](docs/history/261124-v0.1.0.md), 시험 변경 [ADR 0002](docs/decisions/0002-scenario-test-changes.md), guard 위협 모델 [ADR 0003](docs/decisions/0003-guard-threat-model.md)
-- 비교 평가: [예비 비교](docs/evaluation/261124-pilot.md)(murba vs pstack vs 플러그인 없음), 확장 비교 진행 중
+- 비교 평가: [예비 비교](docs/evaluation/261124-pilot.md), [확장 비교 25×3](docs/evaluation/261124-full.md)(murba vs pstack vs 플러그인 없음)
 - CI: GitHub Actions(Node 18·20·22 테스트 + validate), main 보호(CI 필수)
 - 다음 후보(v0.1.2): 생략으로 끝나는 실행의 소스 변경 0 검사, init 전 작업 중 변경을 기준선으로
 - 기준 문서: [기획서 v0.1](docs/spec/spec-v0.1.md) — 모든 구현은 기획서가 우선한다
