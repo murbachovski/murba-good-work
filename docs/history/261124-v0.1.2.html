@@ -1,0 +1,34 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>작업 보고서 261124 · 0.1.2</title><style>
+:root{--bg:#fafaf9;--fg:#1c1917;--mut:#57534e;--line:#e7e5e4;--card:#fff;--ok:#15803d;--warn:#b45309;--bad:#b91c1c;--acc:#1d4ed8}
+@media (prefers-color-scheme:dark){:root{--bg:#0c0a09;--fg:#e7e5e4;--mut:#a8a29e;--line:#292524;--card:#1c1917;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--acc:#93c5fd}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+main{max-width:960px;margin:0 auto;padding:32px 16px 64px}
+h1{font-size:26px;margin:0 0 20px}h2{font-size:18px;margin:36px 0 12px;padding-top:12px;border-top:1px solid var(--line)}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden;display:block;overflow-x:auto}
+th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--line)}th{color:var(--mut);font-weight:600;font-size:13px}
+code{font:13px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 4px;border-radius:4px}
+ul,ol{padding-left:22px}li{margin:3px 0}.b{font-weight:700}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+h2:first-of-type+ul{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 12px 12px 30px}
+pre{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;overflow-x:auto}h3{font-size:16px;margin:20px 0 8px}</style></head><body><main>
+<h1>작업 보고서 261124 · 플러그인 0.1.2</h1>
+<h2>요약</h2>
+<ul><li><strong>한 일</strong>: v0.1.1 확장 비교에서 나온 결함과 ADR 0004의 남은 빈틈을 고친 v0.1.2를 main에 머지(PR #12). 독립 리뷰 3회(ADR 0003 상한)</li><li><strong>결과</strong>: <code>murba init</code>이 대상 저장소 <code>.gitignore</code>를 바꾸지 않음. build·평가를 건너뛴 실행은 구현 파일을 바꾼 채 끝날 수 없음(승인 여부와 무관). init 때 하던 작업은 기준선. 테스트 221개 중 220 통과·1 건너뜀. 실제 실행 14건 모두 블라인드 채점 정답</li><li><strong>다음</strong>: v0.1.2 tag·Release와 회귀 세트 실행 여부(사용자 결정), v0.1.3 후보 2건</li></ul>
+<h2>먼저 볼 것</h2>
+<div class="t"><table><thead><tr><th>구분</th><th>내용</th></tr></thead><tbody><tr><td><span class="b bad">❌</span> 실패·생략</td><td>회귀 세트 11개는 아직 실행 안 함(비용 약 $11, 사용자 결정 대기). tag·Release 안 함</td></tr><tr><td><span class="b warn">⚠️</span> 미검증</td><td>rg가 <code>.murba/hidden</code>을 건너뛰는지 자동 테스트는 로컬·CI에서 건너뛰어짐(로컬 수동 확인: Claude Code 내장 rg 14.1.1, <code>rg -l</code> 결과 <code>src/x.js</code>만). 이 PR에서 CI에 ripgrep 설치 추가. 대화형 모드 경로는 단위 테스트만</td></tr><tr><td>범위 밖 변경</td><td>없음</td></tr></tbody></table></div>
+<h2>단계</h2>
+<div class="t"><table><thead><tr><th>단계</th><th>상태</th><th>증거</th></tr></thead><tbody><tr><td>1차 구현(<code>c57e0ac</code>)</td><td><span class="b ok">✅</span></td><td>테스트 209/209, 실제 실행 n13·n10·t074 정답</td></tr><tr><td>리뷰 1차 → 수정(<code>6fdcc7d</code>)</td><td><span class="b ok">✅</span></td><td>차단 3(비 ASCII 이름, 승인된 생략, 모노레포 하위 폴더 기준선)·중요 5 반영. 실제 실행 3건 정답</td></tr><tr><td>리뷰 2차 → 수정(<code>91e8fef</code>)</td><td><span class="b ok">✅</span></td><td>차단 3(git 출력 한도로 게이트가 열림, 추적 파일의 폴더 이름 제외 회귀, 재작업 오탐) 반영, git 실패 시 거부. 실제 실행 4건(t093 포함) 정답</td></tr><tr><td>리뷰 3차 → 수정(<code>be9003a</code>)</td><td><span class="b ok">✅</span></td><td>차단 2(재초기화 기준선 유지가 두 번째 실행을 막음, 추적 폴더 안 새 파일 제외) 반영. 리뷰어 재현 스크립트 r3a·r3b·r3e·r3f 재실행 기대대로. 실제 실행 4건 정답</td></tr><tr><td>머지(PR #12, <code>65d62de</code>)</td><td><span class="b ok">✅</span></td><td>PR 체크 4개 성공, main CI 성공. 마지막 문서 커밋은 체크가 끝나기 전에 머지 명령이 실행됨(결과는 성공)</td></tr><tr><td>단계 끝 점검</td><td><span class="b ok">✅</span></td><td>아래 결정 표</td></tr></tbody></table></div>
+<h2>PR #12 본문과 최종 상태의 차이</h2>
+<p>PR 본문은 첫 커밋 기준이다. 최종 동작은 [ADR 0005](../decisions/0005-skipped-runs-and-baseline.md)와 CHANGELOG를 따른다.</p>
+<ul><li>게이트 적용: "승인 없이 생략한 실행" → <strong>build나 미검증 evaluate를 건너뛴 실행, 승인 여부와 무관</strong></li><li><code>init --force</code>: "처음 기준선 유지" → <strong>새 실행으로 기준선을 다시 잡음</strong>(guard가 사람 확인 요구)</li><li>테스트: 209 → 221(220 통과, 1 건너뜀)</li></ul>
+<h2>내가 내린 결정</h2>
+<div class="t"><table><thead><tr><th>결정</th><th>틀렸을 때 비용</th></tr></thead><tbody><tr><td><code>.murba/</code> 제외를 <code>.git/info/exclude</code> 대신 <code>.murba/.gitignore</code>로</td><td>비 git 환경은 이전과 같이 효과 없음. worktree·서브모듈에서 경로 계산이 필요 없음</td></tr><tr><td>재초기화는 기준선을 다시 잡음(3차 리뷰 뒤 되돌림)</td><td>사람이 확인한 재초기화로 실행 중 변경을 기준선에 넣을 수 있음</td></tr><tr><td>git 실패 시 게이트 거부(fail-closed)</td><td>git이 깨진 환경에서 approve·lock-tests·생략이 막힘. 오류 메시지와 run 스킬에 대응 안내</td></tr><tr><td>리뷰는 3차에서 멈춤(ADR 0003)</td><td>3차 수정분은 리뷰어 재현 스크립트와 실제 실행으로만 확인</td></tr></tbody></table></div>
+<h2>단계 끝 점검(독립 에이전트)</h2>
+<div class="t"><table><thead><tr><th>찾은 항목</th><th>처리</th><th>근거</th></tr></thead><tbody><tr><td>v0.1.2 보고서 없음, CLAUDE.md 현재 상태 낡음</td><td>진행(이 문서)</td><td><code>docs/history</code>, CLAUDE.md:7,10</td></tr><tr><td>rg 숨김 자동 검증이 한 번도 돌지 않음</td><td>진행: CI에 ripgrep 설치, 로컬 수동 확인 기록</td><td>CI 로그 <code># SKIP rg not installed</code></td></tr><tr><td>README·CHANGELOG에 v0.1.2 한계 없음</td><td>진행</td><td>README 알려진 문제 절</td></tr><tr><td>승인 전 <code>.gitignore</code> 쓰기 예외로 새 파일을 게이트에서 숨길 수 있음</td><td>질문(v0.1.3 후보)</td><td><code>guard.mjs:33</code>, <code>murba-cli.mjs</code> <code>--exclude-standard</code></td></tr><tr><td>t093에서 서브에이전트 백그라운드 + <code>ScheduleWakeup</code> 4회</td><td>질문(결함으로 고칠지)</td><td><code>v012-check4/t093/stream.jsonl</code></td></tr><tr><td>tag·Release v0.1.2</td><td>질문</td><td>records.md: 사용자 승인</td></tr></tbody></table></div>
+<h2>비용</h2>
+<ul><li>v0.1.2 실제 실행 $7.68 + 채점 $0.48. 리뷰·점검 에이전트 비용은 측정 수단 없음</li></ul>
+<h2>남은 질문</h2>
+<ul><li>v0.1.2 tag·Release, 회귀 세트 실행, v0.1.3 후보 2건</li></ul>
+<h2>다음 할 일</h2>
+<ul><li>위 질문의 답에 따라 진행</li></ul>
+</main></body></html>
