@@ -1,7 +1,7 @@
 // Deterministic report generator: .murba state/events/decisions → report.md + report.html (no LLM).
 import fs from 'node:fs';
 import path from 'node:path';
-import { MACHINE, readState, readEvents, readDecisions, readJsonFile, murbaDir, lastVerdict, nonHeldAcs, missingRequires, sha256File } from './core.mjs';
+import { MACHINE, readState, readEvents, readDecisions, readJsonFile, murbaDir, lastVerdict, nonHeldAcs, missingRequires, sha256File, ledgerTampered } from './core.mjs';
 
 const ICON = { VERIFIED: '✅', NOT_VERIFIED: '❌', INCONCLUSIVE: '⚠️', HELD: '⏸', NONE: '⚠️' };
 const cell = s => String(s ?? '').replace(/\|/g, '\\|').replace(/\n+/g, ' ');
@@ -45,9 +45,10 @@ export function buildMarkdown(proj) {
   L.push('## 먼저 볼 것', '| 구분 | 내용 |', '|---|---|');
   const specP = path.join(murbaDir(proj), 'spec.md');
   const specEdited = st.approved && st.spec_hash && (!fs.existsSync(specP) || sha256File(specP) !== st.spec_hash);
-  const failItems = [...(specEdited ? ['SPEC_EDITED: 승인 후 기획서가 바뀜'] : []), ...failed.map(id => `${id} ${acStatus(id)}${st.ac[id].hold_reason ? `(${st.ac[id].hold_reason})` : ''}`), ...skipped.map(s => `생략 ${s}`)];
+  const testsChanged = Object.entries(st.test_hashes || {}).filter(([f, h]) => { const p = path.join(proj, f); return !fs.existsSync(p) || sha256File(p) !== h; }).map(([f]) => f);
+  const failItems = [...(ledgerTampered(proj) ? ['LEDGER_TAMPERED: state.json이 murba CLI 밖에서 바뀜(이 보고서의 판정을 믿을 수 없음)'] : []), ...(specEdited ? ['SPEC_EDITED: 승인 후 기획서가 바뀜'] : []), ...(testsChanged.length ? [`TESTS_CHANGED: ${testsChanged.join(', ')}`] : []), ...failed.map(id => `${id} ${acStatus(id)}${st.ac[id].hold_reason ? `(${st.ac[id].hold_reason})` : ''}`), ...skipped.map(s => `생략 ${s}`)];
   L.push(`| ❌ 실패·생략 | ${cell(failItems.join(', ') || '없음')} |`);
-  const unv = [...unverified.map(id => `${id} 최종 판정 없음`), ...flaky.map(f => `flaky ${f.test || ''}`), ...tampered.map(t => `${t.kind}`)];
+  const unv = [...unverified.map(id => `${id} 최종 판정 없음`), ...flaky.map(f => `flaky ${f.test || ''}`), ...tampered.map(t => `${t.kind}`), ...(st.test_amendments || []).map(a => `TEST_AMENDED: ${a.files.join(', ')} (${a.reason})`)];
   L.push(`| ⚠️ 미검증 | ${cell(unv.join(', ') || '없음')} |`);
   L.push(`| 범위 밖 변경 | ${cell(outOfScope.map(o => o.detail || o.path).join(', ') || '기록 없음')} |`, '');
 

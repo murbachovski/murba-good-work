@@ -8,7 +8,7 @@ const here = path.dirname(fs.realpathSync(fileURLToPath(import.meta.url)));
 const core = await import(pathToFileURL(path.join(here, 'lib', 'core.mjs')).href);
 const { renderReport } = await import(pathToFileURL(path.join(here, 'lib', 'report.mjs')).href);
 const { globToRegex } = await import(pathToFileURL(path.join(here, 'lib', 'patterns.mjs')).href);
-const { CHAIN, MACHINE, projectDir, murbaDir, statePath, readState, updateState, appendEvent, appendDecision, DECISION_CLASSES, missingRequires, nextActionHint, lastVerdict, nonHeldAcs, sha256File, sha256Text, nowIso, pluginVersion, isHeadless, withLock, writeJsonAtomic } = core;
+const { CHAIN, MACHINE, projectDir, murbaDir, statePath, readState, updateState, appendEvent, appendDecision, DECISION_CLASSES, missingRequires, nextActionHint, lastVerdict, nonHeldAcs, sha256File, sha256Text, nowIso, pluginVersion, isHeadless, withLock, writeJsonAtomic, writeState, ledgerTampered } = core;
 
 const proj = projectDir(null);
 const md = murbaDir(proj);
@@ -28,7 +28,7 @@ function flag(name) { return argv.includes(name); }
 function positional() {
   const res = [];
   for (let i = 0; i < argv.length; i++) {
-    if (argv[i].startsWith('--')) { if (argv[i + 1] !== undefined && !argv[i + 1].startsWith('--') && !['--json', '--final', '--headless', '--auto-approve', '--force', '--subagent'].includes(argv[i])) i++; continue; }
+    if (argv[i].startsWith('--')) { if (argv[i + 1] !== undefined && !argv[i + 1].startsWith('--') && !['--json', '--final', '--headless', '--auto-approve', '--force', '--subagent', '--amend'].includes(argv[i])) i++; continue; }
     res.push(argv[i]);
   }
   return res;
@@ -57,13 +57,11 @@ function specEdited(st) {
   const p = path.join(md, 'spec.md');
   return !fs.existsSync(p) || sha256File(p) !== st.spec_hash;
 }
-// 모든 전이 공통 검사: 승인 후 기획서 변경, 구현 단계를 떠날 때 테스트 변경
+// 모든 전이 공통 검사: 승인 후 기획서 변경, 고정 테스트 변경
 function commonChecks(st, cur) {
   if (specEdited(st)) { appendEvent(proj, 'spec_edited', { phase: cur }); fail(2, 'SPEC_EDITED: 승인 후 .murba/spec.md가 바뀜 — 승인본으로 되돌린다'); }
-  if (['build', 'fix', 'evaluate', 'qa'].includes(cur)) {
-    const bad = changedTests(st);
-    if (bad.length) { appendEvent(proj, 'tests_tampered', { files: bad, phase: cur }); fail(2, `TESTS_CHANGED: ${bad.join(', ')}`); }
-  }
+  const bad = changedTests(st);
+  if (bad.length) { appendEvent(proj, 'tests_tampered', { files: bad, phase: cur }); fail(2, `TESTS_CHANGED: ${bad.join(', ')} — 테스트 자체 결함이면 test-writer 재작성 후 murba lock-tests --amend`); }
 }
 
 const ACRE = /^\s*[-*]\s*(AC-\d+)\b\s*(.+?)\s*$/;
@@ -95,7 +93,9 @@ function walk(dir, acc = [], root = dir) {
 
 const cmds = {
   init() {
-    if (fs.existsSync(statePath(proj)) && !flag('--force')) fail(1, '이미 초기화됨(.murba/state.json). 다시 하려면 --force');
+    const prev = readState(proj);
+    if (prev && !flag('--force')) fail(1, '이미 초기화됨(.murba/state.json). 다시 하려면 --force');
+    if (prev && prev.mode !== 'headless' && (flag('--headless') || flag('--auto-approve') || isHeadless())) fail(2, '재초기화 거부: 대화형 실행을 headless·자동 승인으로 바꿀 수 없다(사람 승인 우회)');
     for (const d of ['handoff', 'reports', 'hidden', 'evidence', 'logs']) fs.mkdirSync(path.join(md, d), { recursive: true });
     const headless = flag('--headless') || isHeadless();
     const st = {
@@ -106,7 +106,11 @@ const cmds = {
       budget: { max_minutes: Number(opt('--max-minutes', 120)), max_subagents: Number(opt('--max-subagents', 40)), max_fix_rounds_total: 15 },
       impl_globs: ['src/**', 'app/**', 'lib/**', 'server/**', 'public/**'],
     };
-    writeJsonAtomic(statePath(proj), st);
+    writeState(proj, st, { fresh: true });
+    if (prev) {
+      appendEvent(proj, 'reinit', { from_phase: prev.phase, was_approved: !!prev.approved });
+      appendDecision(proj, { phase: prev.phase, cls: 'user-direction', decision: `murba init --force: 원장 재초기화(이전 단계 ${prev.phase}, 승인 ${prev.approved ? '있음' : '없음'})`, why: '재초기화로 승인·테스트 잠금이 지워짐', cost: '이전 승인·판정 기록 무효' });
+    }
     const gi = path.join(proj, '.gitignore');
     const cur = fs.existsSync(gi) ? fs.readFileSync(gi, 'utf8') : '';
     if (!/^\.murba\/?$/m.test(cur)) fs.appendFileSync(gi, (cur && !cur.endsWith('\n') ? '\n' : '') + '.murba/\n');
@@ -119,6 +123,7 @@ const cmds = {
     const st = readState(proj);
     const miss = missingRequires(proj, st);
     if (flag('--json')) return out(JSON.stringify({ phase: st.phase, next: MACHINE.phases[st.phase].next, missing: miss, auto: st.auto, approved: st.approved, current_ac: st.current_ac, ac: st.ac_order.map(id => ({ id, held: st.ac[id].held, last: lastVerdict(st.ac[id]), final: st.ac[id].final_verdict && st.ac[id].final_verdict.verdict, fix_rounds: st.ac[id].fix_rounds })) }, null, 2));
+    if (ledgerTampered(proj)) out('❌ LEDGER_TAMPERED: state.json이 murba CLI 밖에서 바뀜');
     out(nextActionHint(st));
     out(miss.length ? `남은 조건: ${miss.join(', ')}` : '현재 단계 조건 충족');
     for (const id of st.ac_order) { const a = st.ac[id]; out(`  ${id} ${a.held ? 'HELD' : (lastVerdict(a) || '-')}${a.final_verdict ? ` final=${a.final_verdict.verdict}` : ''} fix=${a.fix_rounds || 0}${id === st.current_ac ? ' ←current' : ''}`); }
@@ -160,11 +165,11 @@ const cmds = {
       const cur = st.phase;
       const def = MACHINE.phases[cur];
       if (!MACHINE.phases[next]) fail(1, `알 수 없는 단계 ${next}`);
+      commonChecks(st, cur);
       if (!def.next.includes(next)) fail(2, `전이 거부: ${cur} → ${next} (허용: ${def.next.join(', ') || '없음'})`);
       const miss = missingRequires(proj, st, cur);
       if (miss.length) fail(2, `전이 거부: ${cur}의 조건 미충족 — ${miss.join(', ')}`);
       gateEntry(st, next);
-      commonChecks(st, cur);
       const ac = st.current_ac && st.ac[st.current_ac];
       const remaining = nonHeldAcs(st).filter(id => lastVerdict(st.ac[id]) !== 'VERIFIED');
       if (cur === 'evaluate' && next === 'fix') {
@@ -305,11 +310,30 @@ const cmds = {
     const globs = positional().slice(1);
     if (!globs.length) fail(1, 'usage: murba lock-tests <glob...>');
     const ph = readState(proj).phase;
-    if (!['setup', 'test-write'].includes(ph)) fail(2, `lock-tests 거부: setup·test-write 단계에서만(현재 ${ph}). 고정 후 테스트를 다시 잠글 수 없다`);
+    const amend = flag('--amend');
+    if (amend) {
+      if (!['build', 'fix', 'evaluate'].includes(ph)) fail(2, `lock-tests --amend 거부: build·fix·evaluate 단계에서만(현재 ${ph})`);
+      const reason = opt('--reason');
+      if (!reason || reason === true || !String(reason).trim()) fail(1, 'usage: murba lock-tests --amend <glob...> --reason "<테스트 결함 근거>"');
+    } else if (!['setup', 'test-write'].includes(ph)) fail(2, `lock-tests 거부: setup·test-write 단계에서만(현재 ${ph}). 테스트 자체 결함이면 test-writer 재작성 후 --amend`);
     const res = globs.map(globToRegex);
     const files = walk(proj).map(f => path.relative(proj, f).split(path.sep).join('/')).filter(r => res.some(re => re.test(r)));
     if (!files.length) fail(2, `일치하는 테스트 파일 없음: ${globs.join(' ')}`);
     const hashes = Object.fromEntries(files.map(f => [f, sha256File(path.join(proj, f))]));
+    if (amend) {
+      const reason = String(opt('--reason'));
+      const locked = readState(proj).test_hashes || {};
+      const notLocked = files.filter(f => !locked[f]);
+      if (notLocked.length) fail(2, `--amend는 이미 고정된 테스트만: ${notLocked.join(', ')}`);
+      const changed = files.filter(f => locked[f] !== hashes[f]);
+      updateState(proj, st => {
+        st.test_hashes = { ...st.test_hashes, ...hashes };
+        st.test_amendments = [...(st.test_amendments || []), { files: changed, reason, phase: ph, at: nowIso() }];
+      });
+      appendDecision(proj, { phase: ph, cls: 'taste', decision: `TEST_AMENDED: ${changed.join(', ') || '(변경 없음)'}`, why: reason, cost: '고친 테스트가 원래 AC보다 약하면 거짓 통과' });
+      appendEvent(proj, 'test_amended', { files: changed, reason });
+      return out(`테스트 ${changed.length}개 재고정(TEST_AMENDED): ${changed.join(', ') || '없음'}`);
+    }
     updateState(proj, st => { st.test_hashes = { ...st.test_hashes, ...hashes }; });
     appendEvent(proj, 'lock_tests', { count: files.length });
     out(`테스트 ${files.length}개 해시 고정:\n${files.map(f => '  ' + f).join('\n')}`);
@@ -390,9 +414,36 @@ const cmds = {
   },
 };
 
+// 호출자 검사: guard가 PreToolUse마다 .murba/caller에 agent_type(또는 main)을 쓴다.
+// 서브에이전트는 읽기 명령만. 파일이 없으면 main(사람·테스트가 직접 실행). 한계: 에이전트를 동시에 돌리면 표식이 공유된다(현재 전경 실행만)
+const SUBAGENT_OK = new Set(['status', 'check-tests', 'help']);
+function callerCheck(cmd) {
+  let caller = 'main';
+  try { caller = fs.readFileSync(path.join(md, 'caller'), 'utf8').trim() || 'main'; } catch { caller = 'main'; }
+  if (!caller.startsWith('murba-good-work:')) return;
+  if (SUBAGENT_OK.has(cmd)) return;
+  if (cmd === 'budget' && !flag('--subagent')) return;
+  if (cmd === 'evidence-run' && caller === 'murba-good-work:evaluator') return;
+  fail(2, `CALLER_SUBAGENT: ${caller} cannot run murba ${cmd}`);
+}
+// 원장 무결성: status·report·init·help는 변조여도 실행(보고서에 ❌로 표시)
+function ledgerCheck(cmd) {
+  if (['status', 'report', 'init', 'help'].includes(cmd)) return;
+  if (!fs.existsSync(statePath(proj))) return;
+  // 쓰기 도중(state 교체 → 해시 교체 사이)을 변조로 오인하지 않도록 잠금 안에서 확인
+  const bad = withLock(proj, () => {
+    if (!ledgerTampered(proj)) return false;
+    const s2 = readState(proj) || {};
+    if (!s2.ledger_tamper_logged) { appendEvent(proj, 'ledger_tampered', { cmd }); s2.ledger_tamper_logged = true; writeJsonAtomic(statePath(proj), s2); }
+    return true;
+  });
+  if (!bad) return;
+  fail(2, 'LEDGER_TAMPERED: .murba/state.json이 murba CLI 밖에서 바뀜 — 되돌리거나 사용자에게 보고(murba report)');
+}
+
 const c = argv[0];
 if (!c || !cmds[c]) { cmds.help(); process.exit(c ? 1 : 0); }
-try { cmds[c](); } catch (e) {
+try { callerCheck(c); ledgerCheck(c); cmds[c](); } catch (e) {
   process.stderr.write(`murba: ${String(e && e.message || e)}\n`);
   process.exit(e instanceof Fail ? e.code : 1);
 }

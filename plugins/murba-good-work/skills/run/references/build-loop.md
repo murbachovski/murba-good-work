@@ -35,6 +35,13 @@ AC별 판정은 진행 확인용이다. **오케스트레이터가 직접** 실�
    - VERIFIED → 다음 AC: `murba phase build` (남은 AC 없으면 `murba phase qa`)
    - 그 외 → `murba phase fix`
 
+## 테스트 자체가 틀렸을 때 (드묾)
+고정된 테스트(숨긴 검사 포함)가 AC와 어긋나는 **결함**이 실행 증거로 드러났을 때만(예: 다른 AC 동작을 전제). 구현이 틀린 것이면 이 절차를 쓰지 않는다.
+1. `murba decide taste "AC-xxx 테스트 결함" --why "<관찰: 기대 vs 실제, 근거 AC 문장>"`
+2. test-writer를 그 AC만 다시 디스패치: AC 본문 + 관찰된 결함. 구현 코드는 주지 않는다(builder는 여전히 테스트를 못 고친다)
+3. 고친 파일만 재고정: `murba lock-tests --amend <파일> --reason "<결함 요약>"` → 보고서 ⚠️에 TEST_AMENDED로 남는다
+4. 그 AC의 evaluate부터 다시
+
 ## fix(ID)
 1. `murba fix-round <ID>` — 종료 코드 3(상한) →
    `murba ac hold <ID> --reason "<마지막 실패>"`, `murba decide taste "AC-xxx 보류" --why "3라운드 실패" --cost "<기능 누락 영향>"`, 다음 AC로(`murba phase build` 또는 `qa`).

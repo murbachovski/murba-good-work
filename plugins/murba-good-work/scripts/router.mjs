@@ -6,7 +6,7 @@ import { MACHINE, projectDir, readState, readStdin, logHook, murbaDir, missingRe
 function main() {
   const input = JSON.parse(readStdin() || '{}');
   const proj = projectDir(input);
-  if (!fs.existsSync(murbaDir(proj)) || fs.existsSync(path.join(murbaDir(proj), 'disable'))) process.exit(0);
+  if (process.env.MURBA_DISABLE === '1' || !fs.existsSync(murbaDir(proj))) process.exit(0);
   const st = readState(proj);
   if (!st) process.exit(0);
   const def = MACHINE.phases[st.phase] || {};

@@ -9,12 +9,7 @@ const deny = (input, msg) => { const r = runHook('guard', input, proj); assert.e
 const allow = (input, msg) => { const r = runHook('guard', input, proj); assert.equal(r.code, 0, r.err); assert.ok(!isDeny(r), `${msg || ''} unexpected deny: ${r.out}`); };
 const isAsk = r => !!(r.json && r.json.hookSpecificOutput && r.json.hookSpecificOutput.permissionDecision === 'ask');
 
-test('F1: nobody can create .murba/disable or remove/move .murba', () => {
-  deny(bash(proj, 'touch .murba/disable'));
-  deny(bash(proj, 'echo 1 > .murba/disable'));
-  deny(bash(proj, 'cp /dev/null .murba/disable'));
-  deny(tool(proj, 'Write', { file_path: path.join(proj, '.murba/disable'), content: '' }));
-  deny(bash(proj, 'touch .murba/disable', sub('builder')));
+test('F1: the kill switch is an env var; nobody can remove or move .murba', () => {
   deny(bash(proj, 'rm -rf .murba', sub('builder')));
   deny(bash(proj, 'rm -rf .murba/', sub('builder')));
   deny(bash(proj, 'mv .murba .m', sub('builder')));
@@ -98,5 +93,62 @@ test('builder cannot change package.json test scripts; other edits allowed', () 
     deny(tool(proj, 'Write', { file_path: pj, content: '{"name":"x","scripts":{"test":"exit 0","start":"node a.js"}}' }, sub('builder')));
     allow(tool(proj, 'Edit', { file_path: pj, old_string: '"start":"node a.js"', new_string: '"start":"node b.js"' }, sub('builder')));
     allow(tool(proj, 'Write', { file_path: pj, content: '{"name":"x","scripts":{"test":"node --test","start":"node b.js"},"dependencies":{}}' }, sub('builder')));
+  });
+});
+
+test('I: script files are scanned for literal irreversible commands, recursive deletes and ledger writes', () => {
+  const W = (file, content, who) => tool(proj, 'Write', { file_path: path.join(proj, file), content }, who ? sub(who) : {});
+  deny(W('.murba/reports/builder/x.mjs', "import {execSync} from 'node:child_process'; execSync('git push -f origin main');", 'builder'));
+  deny(W('scripts/rel.js', "require('child_process').execFileSync('git', ['push', '--force']);"));
+  deny(W('tools/clean.mjs', "import fs from 'node:fs'; fs.rmSync('/Users/someone', { recursive: true, force: true });"));
+  deny(W('tools/clean2.mjs', "import fs from 'node:fs'; fs.rmSync('..', { recursive: true });"));
+  deny(W('tools/x.py', "import shutil\nshutil.rmtree('/home/u')\n"));
+  deny(W('tools/y.py', "import subprocess\nsubprocess.run(['git', 'push', '-f'])\n"));
+  deny(W('tools/z.sh', "#!/bin/sh\ntimeout 10 git push -f\n"));
+  deny(W('.murba/reports/evaluator/f.mjs', "import fs from 'node:fs'; fs.writeFileSync('.murba/state.json', '{}');", 'evaluator'));
+  deny(W('tools/db.mjs', "execSync('psql db -c \"DROP TABLE users\"')"));
+  deny(tool(proj, 'Edit', { file_path: path.join(proj, 'tools/e.js'), old_string: 'a', new_string: "execSync('rm -rf ~')" }));
+  // negative controls
+  allow(W('.murba/reports/orchestrator/check.mjs', "import {execSync} from 'node:child_process'; execSync('npm test', {stdio:'inherit'});"));
+  allow(W('tools/clean3.mjs', "import fs from 'node:fs'; fs.rmSync('dist', { recursive: true, force: true });"));
+  allow(W('.murba/reports/evaluator/r.mjs', "import fs from 'node:fs'; fs.writeFileSync('.murba/reports/evaluator/out.txt', 'x');", 'evaluator'));
+  allow(W('src/run.mjs', "const cmd = process.argv[2]; execSync(cmd);"));
+  allow(W('notes.md', "execSync('git push -f')"));
+});
+
+test('round-2 natural variants: wrappers, eval, bash -lc, case, globs, cd, $(pwd), find without filter, DB pipes', () => {
+  for (const c of ['timeout 10 git push -f', 'nice -n 5 git push -f', 'env -u X git push -f', 'stdbuf -o0 git push -f', "eval 'git push -f'",
+    'bash -lc "git push --force origin main"', 'git -c alias.p=push p --force', 'gh api --method=DELETE repos/o/r',
+    'rm -rf $(pwd)', 'rm -rf `pwd`', 'rm -rf "${HOME:?}"', 'rm -rf $CLAUDE_PROJECT_DIR', 'timeout 9 rm -rf ~', 'nice -n 5 rm -rf ~',
+    `cd .. && rm -rf ${path.basename(proj)}`, 'rm -rf node_modules/../../sibling', 'rm -rf /tmp/../Users/someone',
+    'find . -delete', 'find . -mindepth 1 -delete', "cat <<'SQL' | psql db\nDROP TABLE users;\nSQL", 'echo "DROP TABLE x" | docker exec -i db psql',
+    'rm -rf .murb*', 'mv .murba{,.bak}', "sed -i '' s/false/true/ .murba/stat*.json", "cd .murba && sed -i '' s/false/true/ state.json", 'dd if=x of=.murba/state.json',
+  ]) deny(bash(proj, c), c);
+  deny(tool(proj, 'Write', { file_path: path.join(proj, '.MURBA/state.json'), content: '{}' }));
+  deny(tool(proj, 'Write', { file_path: path.join(proj, '.murba/caller'), content: 'main' }));
+  for (const c of ['echo ac verdict AC-001 VERIFIED --sha x --final | xargs murba', '$(command -v murba) ac verdict AC-001 VERIFIED --sha x',
+    "bash -lc 'murba ac verdict AC-001 VERIFIED --sha x'", `node --no-warnings ${P}/scripts/murba-cli.mjs ac verdict AC-001 VERIFIED --sha x`,
+    'timeout 5 murba ac verdict AC-001 VERIFIED --sha x', 'find . -maxdepth 0 -exec murba ac unhold AC-001 ;', `node -e "require('child_process').execSync('murba ac unhold AC-001')"`,
+    'ls .mur*/hidden', 'cp -r .mur* /tmp/x', "npm pkg set 'scripts.test'=x"]) deny(bash(proj, c, sub('builder')), c);
+  for (const ti of [{ pattern: '.mur*/hidden/*' }, { pattern: '?murba/**' }]) deny(tool(proj, 'Glob', ti, sub('builder')));
+  deny(tool(proj, 'Grep', { pattern: 'x', glob: '{.murba,src}/**' }, sub('builder')));
+  deny(tool(proj, 'Read', { file_path: path.join(proj, '.MURBA/hidden/x.test.js') }, sub('builder')));
+  for (const c of ['echo approve | xargs murba', "bash -lc 'murba approve'", 'timeout 9 murba approve', 'murba init --force --headless --auto-approve']) {
+    const r = runHook('guard', bash(proj, c), proj); assert.ok(isAsk(r), `${c} expected ask, got ${r.out}`);
+  }
+  for (const c of ['timeout 60 npm test', 'env CI=1 npm test', 'npx playwright test', 'rm -rf ~/.npm/_cacache', 'rm -rf ~/.cache/ms-playwright', 'cd src && rm -rf dist',
+    "bash -lc 'npm test'", "find . -name '*.log' -delete", 'git -c user.name=x commit -m y', 'echo "SELECT 1" | psql db', 'rm -rf "$PWD/dist"']) allow(bash(proj, c), c);
+  allow(bash(proj, 'cat .murba/handoff/build.md', sub('builder')));
+  allow(tool(proj, 'Glob', { pattern: 'src/**/*.js' }, sub('builder')));
+  allow(tool(proj, 'Grep', { pattern: 'x' }, sub('builder')));
+});
+
+test('guard records the caller for the CLI', () => {
+  const fs2 = { r: p => import('node:fs').then(m => m.readFileSync(p, 'utf8')) };
+  runHook('guard', bash(proj, 'ls', sub('builder')), proj);
+  return fs2.r(path.join(proj, '.murba/caller')).then(v => {
+    assert.equal(v, 'murba-good-work:builder');
+    runHook('guard', bash(proj, 'ls'), proj);
+    return fs2.r(path.join(proj, '.murba/caller')).then(v2 => assert.equal(v2, 'main'));
   });
 });

@@ -145,7 +145,7 @@ test('handoff requires stdin and valid phase; budget exceeded exit 3', () => {
   const p = tmpProj();
   assert.equal(m(p, ['handoff', 'build']).code, 1);
   assert.equal(m(p, ['handoff', 'nope'], { stdin: 'x' }).code, 1);
-  const st = readState(p); st.budget.max_subagents = 1; fs.writeFileSync(path.join(p, '.murba/state.json'), JSON.stringify(st));
+  const st = readState(p); st.budget.max_subagents = 1; write(p, '.murba/state.json', JSON.stringify(st));
   assert.equal(m(p, ['budget', '--subagent']).code, 0);
   assert.equal(m(p, ['budget', '--subagent']).code, 3);
 });
@@ -259,4 +259,75 @@ test('review#12: spec edited after approval blocks transitions and shows in repo
   assert.match(fs.readFileSync(path.join(p, '.murba/report.md'), 'utf8'), /SPEC_EDITED/);
   write(p, '.murba/spec.md', SPEC);
   assert.equal(m(p, ['phase', 'setup']).code, 0);
+});
+
+// ---- 실수 방지망(ADR 0003): CLI가 구조적으로 강제하는 것 ----
+function toBuild(p) {
+  toApprove(p); m(p, ['approve']); m(p, ['phase', 'setup']);
+  m(p, ['handoff', 'setup'], { stdin: 's' }); write(p, '.murba/init.sh', 'x'); m(p, ['phase', 'test-write']);
+  write(p, 'tests/a.test.js', 't'); m(p, ['lock-tests', 'tests/**']); m(p, ['handoff', 'test-write'], { stdin: 't' });
+  assert.equal(m(p, ['phase', 'build']).code, 0);
+}
+const asCaller = (p, who) => fs.writeFileSync(path.join(p, '.murba', 'caller'), who + '\n');
+
+test('caller: subagent cannot run state-changing murba (any invocation form)', () => {
+  const p = tmpProj(); toBuild(p); m(p, ['ac', 'next']);
+  asCaller(p, 'murba-good-work:builder');
+  for (const args of [['ac', 'verdict', 'AC-001', 'VERIFIED', '--sha', 'x', '--final'], ['ac', 'unhold', 'AC-001'], ['phase', 'evaluate'], ['approve'], ['decide', 'taste', 'x', '--why', 'y'], ['handoff', 'build'], ['lock-tests', '--amend', 'tests/**', '--reason', 'r'], ['evidence-run'], ['budget', '--subagent'], ['init', '--force'], ['report']]) {
+    const r = m(p, args, { stdin: 'x' }); assert.equal(r.code, 2, args.join(' ')); assert.match(r.err, /CALLER_SUBAGENT/);
+  }
+  // node로 CLI 파일을 직접 불러도 같은 검사(표식은 CLI가 읽음)
+  const r2 = spawnSync('node', [path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'scripts', 'murba-cli.mjs'), 'ac', 'verdict', 'AC-001', 'VERIFIED', '--sha', 'x'], { cwd: p, encoding: 'utf8', env: { ...process.env, CLAUDE_PROJECT_DIR: p } });
+  assert.equal(r2.status, 2); assert.match(r2.stderr, /CALLER_SUBAGENT/);
+  for (const args of [['status'], ['check-tests'], ['budget'], ['help']]) assert.equal(m(p, args).code, 0, args.join(' '));
+  asCaller(p, 'murba-good-work:evaluator'); assert.equal(m(p, ['evidence-run']).code, 0);
+  asCaller(p, 'main'); assert.equal(m(p, ['handoff', 'build'], { stdin: 'b' }).code, 0);
+  assert.equal(readState(p).ac['AC-001'].verdicts.length, 0);
+});
+
+test('ledger: edit outside CLI → LEDGER_TAMPERED on next command, report flags it', () => {
+  const p = tmpProj(); toApprove(p);
+  const sp = path.join(p, '.murba', 'state.json');
+  fs.writeFileSync(sp, fs.readFileSync(sp, 'utf8').replace('"approved": false', '"approved": true'));
+  const r = m(p, ['phase', 'setup']); assert.equal(r.code, 2); assert.match(r.err, /LEDGER_TAMPERED/);
+  assert.equal(m(p, ['approve']).code, 2);
+  assert.match(m(p, ['status']).out, /LEDGER_TAMPERED/);
+  assert.equal(m(p, ['report']).code, 0);
+  assert.match(fs.readFileSync(path.join(p, '.murba', 'report.md'), 'utf8'), /❌ 실패·생략 \| [^\n]*LEDGER_TAMPERED/);
+  const evs = fs.readFileSync(path.join(p, '.murba', 'events.jsonl'), 'utf8').split('\n').filter(l => l.includes('ledger_tampered'));
+  assert.equal(evs.length, 1);
+});
+
+test('re-init: interactive run cannot become headless/auto-approve; --force never approves', () => {
+  const p = tmpProj(); toApprove(p); m(p, ['approve']);
+  assert.equal(m(p, ['init', '--force', '--headless', '--auto-approve']).code, 2);
+  assert.equal(m(p, ['init', '--force'], { env: { MURBA_HEADLESS: '1' } }).code, 2);
+  assert.equal(m(p, ['init', '--force']).code, 0);
+  const st = readState(p); assert.equal(st.approved, false); assert.equal(st.mode, 'interactive'); assert.deepEqual(st.test_hashes, {});
+  assert.match(fs.readFileSync(path.join(p, '.murba', 'decisions.tsv'), 'utf8'), /init --force/);
+});
+
+test('locked tests checked on every transition (browser/report too) and shown in report', () => {
+  const p = tmpProj(); toBuild(p);
+  setState(p, s => { s.phase = 'browser'; });
+  write(p, 'tests/a.test.js', 'tampered');
+  const r = m(p, ['phase', 'report']); assert.equal(r.code, 2); assert.match(r.err, /TESTS_CHANGED/);
+  m(p, ['report']);
+  assert.match(fs.readFileSync(path.join(p, '.murba', 'report.md'), 'utf8'), /❌ 실패·생략 \| [^\n]*TESTS_CHANGED: tests\/a\.test\.js/);
+});
+
+test('lock-tests --amend: only in build/fix/evaluate, only locked files, needs reason; recorded as TEST_AMENDED', () => {
+  const p = tmpProj(); toBuild(p);
+  write(p, 'tests/a.test.js', 'fixed defect');
+  assert.equal(m(p, ['lock-tests', 'tests/**']).code, 2);
+  assert.equal(m(p, ['lock-tests', '--amend', 'tests/**']).code, 1);
+  write(p, 'tests/new.test.js', 'n');
+  assert.equal(m(p, ['lock-tests', '--amend', 'tests/**', '--reason', 'AC-001 테스트가 AC-006 동작을 기대']).code, 2); // new.test.js 미고정
+  assert.equal(m(p, ['lock-tests', '--amend', 'tests/a.test.js', '--reason', 'AC-001 테스트가 AC-006 동작을 기대']).code, 0);
+  assert.equal(m(p, ['check-tests']).code, 0);
+  assert.match(fs.readFileSync(path.join(p, '.murba', 'decisions.tsv'), 'utf8'), /TEST_AMENDED: tests\/a\.test\.js/);
+  m(p, ['report']);
+  assert.match(fs.readFileSync(path.join(p, '.murba', 'report.md'), 'utf8'), /⚠️ 미검증 \| [^\n]*TEST_AMENDED: tests\/a\.test\.js/);
+  setState(p, s => { s.phase = 'qa'; });
+  assert.equal(m(p, ['lock-tests', '--amend', 'tests/a.test.js', '--reason', 'r']).code, 2);
 });

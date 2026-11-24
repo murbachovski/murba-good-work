@@ -124,11 +124,11 @@ test('no .murba → no-op even for dangerous command', () => {
   const r = runHook('guard', bash(p2, 'rm -rf /'), p2);
   assert.equal(r.code, 0); assert.equal(r.out, '');
 });
-test('.murba/disable → no-op', () => {
+test('MURBA_DISABLE=1 (set by the human at launch) → no-op; a .murba/disable file no longer switches hooks off', () => {
   const p3 = tmpProj();
+  assert.equal(runHook('guard', bash(p3, 'rm -rf /'), p3, { MURBA_DISABLE: '1' }).out, '');
   fs.writeFileSync(path.join(p3, '.murba', 'disable'), '');
-  const r = runHook('guard', bash(p3, 'rm -rf /'), p3);
-  assert.equal(r.out, '');
+  assert.ok(isDeny(runHook('guard', bash(p3, 'rm -rf /'), p3)));
 });
 test('node missing → guard fail-closed deny', () => {
   const r = runHook('guard', bash(proj, 'ls'), proj, { PATH: '/bin' });

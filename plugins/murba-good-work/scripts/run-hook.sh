@@ -1,12 +1,12 @@
 #!/bin/sh
 # murba-good-work hook wrapper. Usage: run-hook.sh <router|guard|stop-gate>
-# - No .murba/ in the project (or .murba/disable present): exit 0 silently (no effect on other projects).
+# - No .murba/ in the project, or MURBA_DISABLE=1 set by the human at launch: exit 0 silently.
 # - node missing: guard denies (fail-closed), others pass.
 name="$1"
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 proj="${CLAUDE_PROJECT_DIR:-$PWD}"
 
-if [ ! -d "$proj/.murba" ] || [ -f "$proj/.murba/disable" ]; then
+if [ "${MURBA_DISABLE:-}" = "1" ] || [ ! -d "$proj/.murba" ]; then
   cat >/dev/null 2>&1
   exit 0
 fi

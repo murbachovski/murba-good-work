@@ -50,7 +50,9 @@ MURBA_HEADLESS=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 claude -p "/murba-good-w
 - 수정은 AC당 최대 3라운드, 끝없이 반복하지 않습니다
 - hook은 `.murba/`가 있는 프로젝트에서만 동작합니다
 
-비상 해제: `/plugin disable murba-good-work`, 또는 프로젝트에 `.murba/disable` 파일 생성.
+비상 해제: `/plugin disable murba-good-work`, 또는 실행할 때 환경변수 `MURBA_DISABLE=1`.
+
+guard는 협조적인 모델의 실수와 테스트 꼼수를 막는 **안전망**이지 샌드박스가 아닙니다. 일부러 난독화한 명령은 범위 밖입니다([ADR 0003](docs/decisions/0003-guard-threat-model.md)). 강한 차단이 필요하면 Claude Code `permissions.deny`나 샌드박스를 함께 쓰세요.
 
 ## 라이선스
 MIT. 일부 에이전트 지침은 MIT 라이선스 스킬(mattpocock/skills, obra/superpowers, warpdotdev/common-skills)을 한국어로 개작했습니다.

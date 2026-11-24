@@ -41,7 +41,7 @@ function readMaybe(p) { try { return fs.readFileSync(p, 'utf8'); } catch { retur
 async function runOne(t) {
   const dir = path.join(OUT, t.id);
   const work = path.join(dir, 'work');
-  fs.rmSync(dir, { recursive: true, force: true });
+  if (fs.existsSync(dir)) { console.log(`${t.id} 건너뜀: ${dir} 이미 있음(결과를 지우지 않는다. 새 --out 사용)`); return null; }
   fs.mkdirSync(work, { recursive: true });
   const sd = seedDir(t.seed);
   if (t.seed && !sd) fs.writeFileSync(path.join(dir, 'SEED_MISSING'), t.seed);

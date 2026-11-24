@@ -15,7 +15,7 @@ function block(reason) { process.stdout.write(JSON.stringify({ decision: 'block'
 function main() {
   const input = JSON.parse(readStdin() || '{}');
   const proj = projectDir(input);
-  if (!fs.existsSync(murbaDir(proj)) || fs.existsSync(path.join(murbaDir(proj), 'disable'))) allow();
+  if (process.env.MURBA_DISABLE === '1' || !fs.existsSync(murbaDir(proj))) allow();
   const st = readState(proj);
   const headless = !!st && st.mode === 'headless';
   if (!st || st.phase === 'done' || (!st.auto && !headless)) { logHook(proj, 'stop-gate', 'skipped', { phase: st && st.phase, auto: st && st.auto }); allow(); }

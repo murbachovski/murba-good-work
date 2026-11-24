@@ -64,6 +64,25 @@ export function writeJsonAtomic(p, obj) {
   fs.renameSync(tmp, p);
 }
 
+// 원장 무결성: CLI·hook이 쓴 state.json의 sha256을 .murba/state.sha256에 둔다.
+// 다른 경로(sed·리디렉션 등)로 state.json이 바뀌면 해시가 어긋난다 → LEDGER_TAMPERED
+export function stateShaPath(proj) { return path.join(murbaDir(proj), 'state.sha256'); }
+export function ledgerTampered(proj) {
+  const sp = stateShaPath(proj), p = statePath(proj);
+  if (!fs.existsSync(sp) || !fs.existsSync(p)) return false;
+  return fs.readFileSync(sp, 'utf8').trim() !== sha256File(p);
+}
+// state를 쓰고 해시를 갱신. 이미 변조된 원장이면 해시를 갱신하지 않는다(변조를 덮어 합법화하지 않음)
+export function writeState(proj, obj, { fresh = false } = {}) {
+  const tampered = !fresh && ledgerTampered(proj);
+  writeJsonAtomic(statePath(proj), obj);
+  if (!tampered) {
+    const tmp = `${stateShaPath(proj)}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, sha256File(statePath(proj)) + '\n');
+    fs.renameSync(tmp, stateShaPath(proj));
+  }
+}
+
 // Read-modify-write state under lock. mutator returns nothing (mutates) or a new object.
 export function updateState(proj, mutator) {
   return withLock(proj, () => {
@@ -71,7 +90,7 @@ export function updateState(proj, mutator) {
     if (!st) throw new Error('state.json missing — run `murba init`');
     const r = mutator(st);
     const out = r === undefined ? st : r;
-    writeJsonAtomic(statePath(proj), out);
+    writeState(proj, out);
     return out;
   });
 }

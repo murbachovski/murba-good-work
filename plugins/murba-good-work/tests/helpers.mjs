@@ -1,6 +1,7 @@
 // Test helpers: run the REAL hook wrapper and CLI as child processes.
 import { spawnSync } from 'node:child_process';
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -55,7 +56,14 @@ export function readState(proj) { return JSON.parse(fs.readFileSync(path.join(pr
 export function setState(proj, fn) {
   const p = path.join(proj, '.murba', 'state.json');
   const s = JSON.parse(fs.readFileSync(p, 'utf8')); fn(s); fs.writeFileSync(p, JSON.stringify(s));
+  signState(proj);
+}
+// 테스트 준비용: state.json을 직접 고친 뒤 원장 해시를 맞춘다(CLI가 쓴 것처럼). 변조 테스트에서는 부르지 않는다
+export function signState(proj) {
+  const p = path.join(proj, '.murba', 'state.json');
+  fs.writeFileSync(path.join(proj, '.murba', 'state.sha256'), crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex') + '\n');
 }
 export function write(proj, rel, body = 'x') {
   const p = path.join(proj, rel); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, body);
+  if (rel === '.murba/state.json') signState(proj);
 }

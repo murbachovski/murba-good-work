@@ -192,7 +192,8 @@ setup 단계가 대상 프로젝트에 만든다: 타입체크, 린터, 구조 �
 - Bash를 통한 쓰기(리다이렉션, `tee`, `sed -i` 등) 검사는 최선 노력이다. 완전 차단이 아니므로 diff 규칙(§9)으로 사후 감지를 함께 한다
 - 상태 쓰기는 lock 파일 또는 추가 전용 이벤트 로그
 - 실행 기록 `.murba/logs/hooks.jsonl` (fired/blocked/released/exhausted/skipped/error), liveness 경고
-- 비상 해제(`/plugin disable`, `disableAllHooks`)는 이 문서에만. 차단 메시지에 쓰지 않음
+- 비상 해제(`/plugin disable`, `disableAllHooks`, 환경변수 `MURBA_DISABLE=1`)는 이 문서에만. 차단 메시지에 쓰지 않음
+- 위협 모델: 협조적 모델의 실수·테스트 꼼수 방지(의도적 난독화는 범위 밖). 문자열로 막을 수 없는 서브에이전트 상태 변경·원장 변조는 CLI가 호출 주체 기록(`.murba/caller`)과 상태 해시(`.murba/state.sha256`)로 막는다([ADR 0003](../decisions/0003-guard-threat-model.md))
 - 테스트: 실제 Claude Code에서 캡처한 입력 픽스처, 실제 프로세스 실행, 음성 대조군(막으면 안 되는 명령), 모든 테스트 파일이 러너에 연결됐는지 확인
 
 ## 14. 컨텍스트 관리
@@ -340,3 +341,4 @@ murba_good_work_plugin/
 - 2026-11-24 최종 검토 반영: 쓰기 주체 정리(읽기 전용 에이전트 보고는 오케스트레이터가 기록, test-writer의 hidden 예외), qa 뮤테이션 담당을 스크립트로 일치, eval 샌드박스 밖 hook·MCP 명시
 - 2026-11-24 가정 표 원문 대조 반영: M2·M5·M8·M13·M17·M19·M20 정정, M23 확인, M25~M27 추가, agent_type 접두, status check 위조 가능성·GitHub App, settings.local.json, stop-gate 출력 방식, 클라우드 예약 작업 명칭
 - 2026-11-24 시나리오 시험(sonnet, 100개 과제) 결과 반영: [ADR 0002](../decisions/0002-scenario-test-changes.md). AC별 판정을 테스트 종료 코드로 결정적으로, 독립 evaluator는 qa·browser에서 1회, qa → fix 재수정, `--skip`·`[after:]`·`evidence-run`, headless 자동 승인·질문 종료 차단, 서브에이전트 전경 실행
+- 2026-11-24 PR #1 독립 리뷰 2회 반영: guard 위협 모델을 실수 방지망으로 확정, 비상 해제를 환경변수로, 호출 주체 기록·상태 해시·테스트 수정 경로(`lock-tests --amend`) 추가([ADR 0003](../decisions/0003-guard-threat-model.md))
