@@ -74,3 +74,8 @@ export function write(proj, rel, body = 'x') {
   // v0.1.1: grill requires brief.md next to spec.md; tests that write a spec get a default brief
   if (rel === '.murba/spec.md' && !fs.existsSync(path.join(proj, '.murba/brief.md'))) fs.writeFileSync(path.join(proj, '.murba/brief.md'), '# brief\n(test)\n');
 }
+
+// v0.1.4: a subagent's own report (test-writer before lock-tests, evaluator before leaving qa) — what the real subagent would write
+export function agentReport(proj, agent, name = 'report.md') {
+  const d = path.join(proj, '.murba', 'reports', agent); fs.mkdirSync(d, { recursive: true }); fs.writeFileSync(path.join(d, name), `# ${agent}\n(test fixture)\n`);
+}

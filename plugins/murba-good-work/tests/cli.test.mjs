@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
-import { tmpProj, murbaCli as m, readState, write, setState } from './helpers.mjs';
+import { tmpProj, murbaCli as m, readState, write, setState, agentReport } from './helpers.mjs';
 
 const SPEC = '# spec\n- AC-001 WHEN add(1,2) THE SYSTEM SHALL return 3\n- AC-002 [browser] WHEN page loads THE SYSTEM SHALL show title\n';
 
@@ -70,7 +70,9 @@ test('full loop: build/evaluate/fix cap/hold/qa/browser/report', () => {
   assert.equal(m(p, ['phase', 'test-write']).code, 0);
   assert.equal(m(p, ['phase', 'build']).code, 2); // no test hashes
   write(p, 'tests/a.test.js', 't');
+  agentReport(p, 'test-writer');
   assert.equal(m(p, ['lock-tests', 'nomatch/**']).code, 2);
+  agentReport(p, 'test-writer');
   assert.equal(m(p, ['lock-tests', 'tests/**']).code, 0);
   m(p, ['handoff', 'test-write'], { stdin: 'tw' });
   assert.equal(m(p, ['phase', 'build']).code, 0);
@@ -93,14 +95,19 @@ test('full loop: build/evaluate/fix cap/hold/qa/browser/report', () => {
   assert.equal(m(p, ['phase', 'build']).code, 2); // none remaining
   assert.equal(m(p, ['phase', 'qa']).code, 0);
   m(p, ['handoff', 'qa'], { stdin: 'qa' });
+  agentReport(p, 'evaluator');
   assert.equal(m(p, ['phase', 'browser']).code, 2); // no final verdicts
   m(p, ['ac', 'verdict', 'AC-001', 'VERIFIED', '--sha', 'c3', '--final']);
   m(p, ['ac', 'verdict', 'AC-002', 'VERIFIED', '--sha', 'c3', '--final']);
+  agentReport(p, 'evaluator');
   assert.equal(m(p, ['phase', 'report']).code, 2); // browser AC requires browser phase
+  agentReport(p, 'evaluator');
   assert.equal(m(p, ['phase', 'browser']).code, 0);
   m(p, ['handoff', 'browser'], { stdin: 'br' });
+  agentReport(p, 'evaluator');
   assert.equal(m(p, ['phase', 'report']).code, 2); // no screenshot
   write(p, '.murba/evidence/run-20261124T000000Z/AC-002.png', 'png');
+  agentReport(p, 'evaluator');
   assert.equal(m(p, ['phase', 'report']).code, 0);
   assert.equal(m(p, ['phase', 'done']).code, 2); // report.md missing
   assert.equal(m(p, ['report']).code, 0);
@@ -116,6 +123,7 @@ test('full loop: build/evaluate/fix cap/hold/qa/browser/report', () => {
 test('evaluate: held current AC satisfies requirement', () => {
   const p = tmpProj(); toApprove(p); m(p, ['approve', '--human']); m(p, ['phase', 'setup']);
   m(p, ['handoff', 'setup'], { stdin: 's' }); write(p, '.murba/init.sh', 'x'); m(p, ['phase', 'test-write']);
+  agentReport(p, 'test-writer');
   write(p, 'tests/a.test.js', 't'); m(p, ['lock-tests', 'tests/**']); m(p, ['handoff', 'test-write'], { stdin: 't' }); m(p, ['phase', 'build']);
   m(p, ['ac', 'next']); m(p, ['handoff', 'build'], { stdin: 'b' }); m(p, ['phase', 'evaluate']);
   assert.equal(m(p, ['ac', 'hold', 'AC-001', '--reason', 'blocked by API']).code, 0);
@@ -127,6 +135,7 @@ test('check-tests detects tampering and deletion', () => {
   const p = tmpProj();
   write(p, 'tests/a.test.js', 'a'); write(p, 'tests/b.test.js', 'b');
   setState(p, s => { s.phase = 'test-write'; });
+  agentReport(p, 'test-writer');
   assert.equal(m(p, ['lock-tests', 'tests/**']).code, 0);
   assert.equal(m(p, ['check-tests']).code, 0);
   write(p, 'tests/a.test.js', 'changed'); fs.rmSync(path.join(p, 'tests/b.test.js'));
@@ -187,6 +196,7 @@ test('qa → fix --ac reopens a final NOT_VERIFIED AC within fix cap', () => {
   write(p, '.murba/handoff/qa.md', 'qa');
   write(p, 'tests/a.test.js', 'a');
   setState(p, s => { s.phase = 'test-write'; });
+  agentReport(p, 'test-writer');
   assert.equal(m(p, ['lock-tests', 'tests/**']).code, 0);
   setState(p, s => { s.phase = 'qa'; });
   assert.equal(m(p, ['phase', 'fix']).code, 1);
@@ -242,11 +252,14 @@ test('review#7: headless approve uses pre-approval stored at init, not env at ap
 test('review#8: lock-tests only in setup/test-write; leaving build with changed tests refused', () => {
   const p = tmpProj(); toApprove(p); m(p, ['approve', '--human']);
   write(p, 'tests/a.test.js', 'a');
+  agentReport(p, 'test-writer');
   assert.equal(m(p, ['lock-tests', 'tests/**']).code, 2);
   setState(p, s => { s.phase = 'test-write'; });
+  agentReport(p, 'test-writer');
   assert.equal(m(p, ['lock-tests', 'tests/**']).code, 0);
   write(p, '.murba/handoff/test-write.md', 'x');
   assert.equal(m(p, ['phase', 'build']).code, 0);
+  agentReport(p, 'test-writer');
   assert.equal(m(p, ['lock-tests', 'tests/**']).code, 2);
   write(p, '.murba/handoff/build.md', 'x');
   write(p, 'tests/a.test.js', 'weakened');
@@ -271,6 +284,7 @@ test('review#12: spec edited after approval blocks transitions and shows in repo
 function toBuild(p) {
   toApprove(p); m(p, ['approve', '--human']); m(p, ['phase', 'setup']);
   m(p, ['handoff', 'setup'], { stdin: 's' }); write(p, '.murba/init.sh', 'x'); m(p, ['phase', 'test-write']);
+  agentReport(p, 'test-writer');
   write(p, 'tests/a.test.js', 't'); m(p, ['lock-tests', 'tests/**']); m(p, ['handoff', 'test-write'], { stdin: 't' });
   assert.equal(m(p, ['phase', 'build']).code, 0);
 }
@@ -317,6 +331,7 @@ test('locked tests checked on every transition (browser/report too) and shown in
   const p = tmpProj(); toBuild(p);
   setState(p, s => { s.phase = 'browser'; });
   write(p, 'tests/a.test.js', 'tampered');
+  agentReport(p, 'evaluator');
   const r = m(p, ['phase', 'report']); assert.equal(r.code, 2); assert.match(r.err, /TESTS_CHANGED/);
   m(p, ['report']);
   assert.match(fs.readFileSync(path.join(p, '.murba', 'report.md'), 'utf8'), /❌ 실패·생략 \| [^\n]*TESTS_CHANGED: tests\/a\.test\.js/);
@@ -325,16 +340,21 @@ test('locked tests checked on every transition (browser/report too) and shown in
 test('lock-tests --amend: only in build/fix/evaluate, only locked files, needs reason; recorded as TEST_AMENDED', () => {
   const p = tmpProj(); toBuild(p);
   write(p, 'tests/a.test.js', 'fixed defect');
+  agentReport(p, 'test-writer');
   assert.equal(m(p, ['lock-tests', 'tests/**']).code, 2);
+  agentReport(p, 'test-writer');
   assert.equal(m(p, ['lock-tests', '--amend', 'tests/**']).code, 1);
   write(p, 'tests/new.test.js', 'n');
+  agentReport(p, 'test-writer');
   assert.equal(m(p, ['lock-tests', '--amend', 'tests/**', '--reason', 'AC-001 테스트가 AC-006 동작을 기대']).code, 2); // new.test.js 미고정
+  agentReport(p, 'test-writer');
   assert.equal(m(p, ['lock-tests', '--amend', 'tests/a.test.js', '--reason', 'AC-001 테스트가 AC-006 동작을 기대']).code, 0);
   assert.equal(m(p, ['check-tests']).code, 0);
   assert.match(fs.readFileSync(path.join(p, '.murba', 'decisions.tsv'), 'utf8'), /TEST_AMENDED: tests\/a\.test\.js/);
   m(p, ['report']);
   assert.match(fs.readFileSync(path.join(p, '.murba', 'report.md'), 'utf8'), /⚠️ 미검증 \| [^\n]*TEST_AMENDED: tests\/a\.test\.js/);
   setState(p, s => { s.phase = 'qa'; });
+  agentReport(p, 'test-writer');
   assert.equal(m(p, ['lock-tests', '--amend', 'tests/a.test.js', '--reason', 'r']).code, 2);
 });
 
@@ -435,8 +455,10 @@ test('v0.1.1 r2: source edited before tests → approve and lock-tests refused (
   // setup에서 설정 파일·테스트를 만드는 정상 흐름은 lock-tests 통과, 구현 파일을 먼저 고치면 거부
   setState(p, s => { s.phase = 'test-write'; });
   write(p, 'package.json', '{"scripts":{"test":"node --test"}}'); write(p, 'vitest.config.mjs', 'export default {}'); write(p, 'test/cart.test.js', '// AC-001\n');
+  agentReport(p, 'test-writer');
   assert.equal(m(p, ['lock-tests', 'test/**']).code, 0);
   write(p, 'lib/new.js', 'x'); // 새 구현 파일(추적 안 됨)
+  agentReport(p, 'test-writer');
   const r2 = m(p, ['lock-tests', 'test/**']);
   assert.equal(r2.code, 2); assert.match(r2.err, /lib\/new\.js/);
 });

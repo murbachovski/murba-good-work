@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { tmpProj, runHook, bash, tool, sub, setState, murbaCli as m, readState, write, P } from './helpers.mjs';
+import { tmpProj, runHook, bash, tool, sub, setState, murbaCli as m, readState, write, P, agentReport } from './helpers.mjs';
 
 const decision = r => (r.json && r.json.hookSpecificOutput && r.json.hookSpecificOutput.permissionDecision) || 'allow';
 
@@ -436,6 +436,7 @@ test('probe3/rr-c1/rr-c2/probe4: CLI refuses skip gates, early lock-tests, spec 
   // probe3: from triage, --skip build and lock-tests are refused
   const p = tmpProj();
   assert.equal(m(p, ['phase', 'build', '--skip', 'no reason']).code, 2);
+  agentReport(p, 'test-writer');
   assert.equal(m(p, ['lock-tests', '**']).code, 2);
   // rr/c1 B: unapproved spec at the approve phase cannot skip into build/setup
   const b = tmpProj(); toApprove(b);
@@ -454,9 +455,11 @@ test('probe3/rr-c1/rr-c2/probe4: CLI refuses skip gates, early lock-tests, spec 
   const c = tmpProj();
   write(c, 'test/a.test.js', 'orig');
   setState(c, s => { s.phase = 'test-write'; s.approved = true; });
+  agentReport(c, 'test-writer');
   assert.equal(m(c, ['lock-tests', 'test/**']).code, 0);
   setState(c, s => { s.phase = 'browser'; s.ac = {}; s.ac_order = []; });
   write(c, '.murba/handoff/browser.md', 'h'); write(c, 'test/a.test.js', 'TAMPERED');
+  agentReport(c, 'evaluator');
   r = m(c, ['phase', 'report']); assert.equal(r.code, 2); assert.match(r.err, /TESTS_CHANGED/);
   assert.equal(m(c, ['report']).code, 0);
   assert.match(fs.readFileSync(path.join(c, '.murba/report.md'), 'utf8'), /a\.test\.js/);

@@ -220,6 +220,14 @@ function main() {
     const r = analyzeBash(ti.command, proj);
     if (r) block(r.reason, r.rule, 'irreversible');
   }
+  // 2a) main session: subagent report folders are the subagents' evidence of independent work; tests are written by test-writer
+  if (!name) {
+    const rels = WRITE_TOOLS.includes(tool) ? toolRels(proj, tool, ti) : tool === 'Bash' ? bashWriteRels(String(ti.command || ''), proj) : [];
+    for (const rel of rels) {
+      if (/^\.murba\/reports\/(test-writer|builder|evaluator|pr-reviewer)(\/|$)/.test(rel)) block(`${rel}은 그 서브에이전트만 쓴다(독립 작업의 증거). 해당 에이전트를 불러 쓰게 한다`, 'agent-report', null);
+      if (st.phase === 'test-write' && isTestPath(rel) && !relUnder(rel, '.murba')) block(`테스트(${rel})는 test-writer가 AC만 보고 쓴다. murba-good-work:test-writer를 부른다`, 'main-test-write', null);
+    }
+  }
   // 2) secrets, ledger files — everyone
   if (WRITE_TOOLS.includes(tool)) {
     for (const rel of toolRels(proj, tool, ti)) {

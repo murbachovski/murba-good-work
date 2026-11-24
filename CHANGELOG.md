@@ -7,6 +7,15 @@
 
 ## [Unreleased]
 
+## [플러그인 0.1.4] - 2026-11-24
+### 바뀜 ([ADR 0007](docs/decisions/0007-enforce-independent-roles.md))
+- guard: 메인 세션은 `.murba/reports/{test-writer,builder,evaluator,pr-reviewer}/`에 쓸 수 없음(서브에이전트 독립 작업의 증거), test-write 단계에서 테스트 파일도 쓸 수 없음
+- `murba lock-tests`: 승인 뒤 test-writer 보고가 없으면 거부(`TEST_WRITER_REPORT_MISSING`). `--amend`는 마지막 잠금 뒤의 보고 필요
+- qa → browser·report: 이번 qa 회차의 evaluator 보고가 없으면 거부(`EVALUATOR_REPORT_MISSING`)
+- evaluator 지침: 판정 보고를 `.murba/reports/evaluator/<단계>.md`에 반드시 씀(이전 지침의 "쓰기 도구 없음" 문장 정정)
+### 검증
+- 테스트 238개 중 237 통과, 1 건너뜀(로컬 rg). 규칙 6개 각각 되돌린 뮤테이션에서 새 테스트 실패 확인
+
 ## [플러그인 0.1.3] - 2026-11-24
 ### 바뀜 ([ADR 0006](docs/decisions/0006-no-wakeups-and-gitignore.md))
 - guard: 승인 전 메인 세션의 프로젝트 `.gitignore` 쓰기도 거부(무시 줄로 새 파일을 소스 변경 게이트에서 숨길 수 있었음)
