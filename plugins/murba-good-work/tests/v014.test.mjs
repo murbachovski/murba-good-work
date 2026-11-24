@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { tmpProj, murbaCli as m, readState, write, setState, agentReport, runHook, tool, bash, sub, isDeny } from './helpers.mjs';
 
 const SPEC = '# spec\n- AC-001 WHEN add(1,2) THE SYSTEM SHALL return 3\n';
@@ -182,10 +183,57 @@ test('v0.1.4 r2: the real lock stamps its time; --amend on an old ledger uses th
   assert.match(m(p, ['lock-tests', '--amend', 'tests/a.test.js', '--reason', 'r']).err, /TEST_WRITER_REPORT_MISSING/, 'old ledger falls back to the lock event');
 });
 
-test('v0.1.4 r2: find -exec commands are followed', () => {
+test('v0.1.4 r3: find -exec / -execdir / -ok with {} and both terminators', () => {
   const p = tmpProj(); approved(p);
   setState(p, s => { s.phase = 'qa'; });
-  deny(p, bash(p, `find . -name x.md -exec sh -c 'cp "$1" .murba/reports/evaluator/qa.md' _ {} \;`), 'find -exec sh -c');
-  deny(p, bash(p, 'find . -name x.md -exec cp {} .murba/reports/evaluator/qa.md \;'), 'find -exec cp');
-  allow(p, bash(p, 'find . -name "*.log" -exec cat {} \;'), 'find -exec cat');
+  for (const c of [String.raw`find . -name x.md -exec sh -c 'cp "$1" .murba/reports/evaluator/qa.md' _ {} \;`, String.raw`find . -name x.md -exec cp {} .murba/reports/evaluator/qa.md \; -print`,
+    String.raw`find .murba/reports/evaluator -maxdepth 0 -exec cp x.md {}/qa.md \;`, String.raw`find .murba/reports -maxdepth 1 -name evaluator -execdir sh -c 'echo ok > evaluator/qa.md' \;`,
+    String.raw`find .murba/reports/evaluator -maxdepth 0 -ok cp x.md {}/qa.md \;`, 'find .murba/reports/evaluator -name "*.md" -exec cp x.md {} +'])
+    deny(p, bash(p, c), c);
+  allow(p, bash(p, String.raw`find . -name "*.log" -exec cat {} \;`), 'find -exec cat');
+  for (const c of ["find .murba/evidence -name '*.tmp' -exec rm {} +", String.raw`find .murba/reports/evaluator -name '*.tmp' -exec rm -f {} \;`, "find /tmp/murba-x -name '*.log' -exec rm {} +",
+    String.raw`find .murba/evidence -name '*.log' -exec cp {} .murba/reports/evaluator/ \;`, 'cp a.log .murba/reports/evaluator/'])
+    allow(p, bash(p, c, sub('evaluator')), `evaluator: ${c}`);
+  deny(p, bash(p, 'find tests -name "*.test.js" -exec rm {} +', sub('builder')), 'builder deletes tests via find -exec');
+});
+
+test('v0.1.4 r3: destructive checks follow the outer cd and find -exec; bash -c -x payload; cd -', () => {
+  const p = tmpProj(); approved(p);
+  setState(p, s => { s.phase = 'build'; });
+  for (const c of ["cd ~ && sh -c 'rm -rf Documents'", "cd ~ && eval 'rm -rf Documents'", String.raw`find . -maxdepth 0 -exec git push --force \;`, String.raw`find . -maxdepth 0 -exec sh -c 'rm -rf ~' \;`])
+    deny(p, bash(p, c), c);
+  setState(p, s => { s.phase = 'qa'; });
+  for (const c of ['bash -c -x "echo ok > .murba/reports/evaluator/qa.md"', 'bash -c -e "echo ok > .murba/reports/evaluator/qa.md"', 'cd .murba && cd reports && cd - && echo ok > reports/evaluator/qa.md'])
+    deny(p, bash(p, c), c);
+});
+
+test('v0.1.4 r3: a risky skip after fix needs an evaluator report newer than the fix', () => {
+  const H = { env: { MURBA_HEADLESS: '1' } };
+  const p = tmpProj({ murba: false }); assert.equal(m(p, ['init', '--headless', '--auto-approve'], H).code, 0);
+  approved(p, '{"task_type":"bug-fix","risky":true}');
+  write(p, 'tests/a.test.js', '// AC-001\n'); setState(p, s => { s.phase = 'test-write'; }); agentReport(p, 'test-writer');
+  assert.equal(m(p, ['lock-tests', 'tests/**']).code, 0);
+  agentReport(p, 'evaluator', 'qa.md'); // after approval and lock, before the fix (an earlier qa round)
+  execFileSync('sleep', ['0.1']); // the fix below starts strictly later
+  setState(p, s => { s.phase = 'evaluate'; s.current_ac = 'AC-001'; });
+  assert.equal(m(p, ['ac', 'verdict', 'AC-001', 'NOT_VERIFIED', '--sha', 'a']).code, 0);
+  m(p, ['handoff', 'evaluate'], { stdin: 'ev' });
+  assert.equal(m(p, ['phase', 'fix']).code, 0);
+  m(p, ['handoff', 'fix'], { stdin: 'fx' });
+  assert.equal(m(p, ['phase', 'evaluate']).code, 0);
+  assert.equal(m(p, ['ac', 'verdict', 'AC-001', 'VERIFIED', '--sha', 'b']).code, 0);
+  m(p, ['handoff', 'evaluate'], { stdin: 'ev2' });
+  assert.match(m(p, ['phase', 'report', '--skip', '위험 요청'], H).err, /EVALUATOR_REPORT_MISSING/);
+  agentReport(p, 'evaluator', 'qa2.md');
+  assert.equal(m(p, ['phase', 'report', '--skip', '위험 요청'], H).code, 0);
+});
+
+test('v0.1.4 r3: a risky run that locked tests but built nothing can still stop', () => {
+  const H = { env: { MURBA_HEADLESS: '1' } };
+  const p = tmpProj({ murba: false }); assert.equal(m(p, ['init', '--headless', '--auto-approve'], H).code, 0);
+  approved(p, '{"task_type":"feature","risky":true}');
+  write(p, 'tests/a.test.js', '// AC-001\n'); setState(p, s => { s.phase = 'test-write'; }); agentReport(p, 'test-writer');
+  assert.equal(m(p, ['lock-tests', 'tests/**']).code, 0);
+  m(p, ['handoff', 'test-write'], { stdin: 'tw' });
+  const r = m(p, ['phase', 'report', '--skip', '위험 요청'], H); assert.equal(r.code, 0, r.err);
 });

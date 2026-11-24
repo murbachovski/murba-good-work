@@ -140,7 +140,8 @@ function checkAgentRules(name, tool, ti, proj, st) {
   const rels = toolRels(proj, tool, ti);
   const isWrite = WRITE_TOOLS.includes(tool);
   const isRead = READ_TOOLS.includes(tool);
-  const allowedMurbaWrite = rel => rel.startsWith(ownReports) || (self === 'test-writer' && rel.startsWith('.murba/hidden/')) || (self === 'evaluator' && rel.startsWith('.murba/evidence/'));
+  const inDir = (rel, d) => rel === d || rel.startsWith(d + '/');
+  const allowedMurbaWrite = rel => inDir(rel, ownReports.slice(0, -1)) || (self === 'test-writer' && inDir(rel, '.murba/hidden')) || (self === 'evaluator' && inDir(rel, '.murba/evidence'));
 
   if (isWrite) {
     for (const rel of rels) {

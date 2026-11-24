@@ -196,6 +196,10 @@ function lastEntry(st, field, phase) {
   try { const ev = fs.readFileSync(path.join(md, 'events.jsonl'), 'utf8').trim().split('\n').map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(e => e && e.kind === 'phase' && e.to === phase); if (ev.length) return ev[ev.length - 1].ts; } catch {}
   return st.approved_at || null;
 }
+function lastPhaseEntry(phase) {
+  try { const ev = fs.readFileSync(path.join(md, 'events.jsonl'), 'utf8').trim().split('\n').map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(e => e && e.kind === 'phase' && e.to === phase); if (ev.length) return ev[ev.length - 1].ts; } catch {}
+  return null;
+}
 function lastEventTs(kind) {
   try { const ev = fs.readFileSync(path.join(md, 'events.jsonl'), 'utf8').trim().split('\n').map(l => { try { return JSON.parse(l); } catch { return null; } }).filter(e => e && e.kind === kind); if (ev.length) return ev[ev.length - 1].ts; } catch {}
   return null;
@@ -306,8 +310,11 @@ const cmds = {
         gateEntry(st, next);
         // build나 미검증 evaluate를 건너뛰는 생략이면(승인 여부와 무관) 구현 파일 변경이 있을 수 없다
         if (skipNeedsGate(st, path_)) skippedRunGate(st, `murba phase ${next} --skip`);
-        // qa에서 떠나거나, 테스트를 잠그고 구현한 뒤 qa를 건너뛰면 독립 평가 보고가 필요하다(위험 요청이 evaluate에서 바로 생략하는 경우 포함)
-        const qaSince = cur === 'qa' ? lastEntry(st, 'qa_entered_at', 'qa') : (path_.includes('qa') && Object.keys(st.test_hashes || {}).length ? st.approved_at || lastEventTs('lock_tests') : undefined);
+        // qa에서 떠나거나, 테스트를 잠근 실행이 build 뒤에서 qa를 건너뛰면(위험 요청이 evaluate·fix에서 바로 생략) 독립 평가 보고가 필요하다
+        // 생략 경로에 build가 있으면 skippedRunGate가 구현 변경 없음을 보장하므로 제외. 기준은 마지막 구현(build·fix 진입)·qa 진입·승인 중 가장 늦은 시각
+        const latest = (...ts) => ts.filter(Boolean).sort((a, b) => Date.parse(b) - Date.parse(a))[0] || null;
+        const qaSince = cur === 'qa' ? lastEntry(st, 'qa_entered_at', 'qa')
+          : (path_.includes('qa') && !path_.includes('build') && Object.keys(st.test_hashes || {}).length ? latest(st.approved_at, st.qa_entered_at, lastPhaseEntry('build'), lastPhaseEntry('fix'), lastEventTs('lock_tests')) : undefined);
         if (qaSince !== undefined && !agentReportSince('evaluator', qaSince)) { appendEvent(proj, 'evaluator_report_missing', { phase: cur, skip: true }); fail(2, 'EVALUATOR_REPORT_MISSING: 테스트를 잠근 실행은 qa를 생략해도 독립 평가(evaluator) 보고가 필요하다(qa에서 떠나면 이번 회차 보고)'); }
         st.skipped = st.skipped || {};
         for (const ph of path_) st.skipped[ph] = String(skipReason);
