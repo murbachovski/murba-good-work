@@ -11,7 +11,7 @@
 ## 버전
 | 버전 | 상태 | 핵심 |
 |---|---|---|
-| 0.1.5 | main(Release 전) | `sed -i` 해석 오탐 수정(BSD `sed -i ''`의 스크립트를 파일로 읽던 문제) |
+| 0.1.5 | [Release](https://github.com/murbachovski/murba-good-work/releases/tag/v0.1.5) | `sed -i` 해석 오탐 수정(BSD `sed -i ''`의 스크립트를 파일로 읽던 문제) |
 | 0.1.4 | [Release](https://github.com/murbachovski/murba-good-work/releases/tag/v0.1.4) | test-writer·evaluator의 독립 작업을 CLI·guard가 강제 ([ADR 0007](docs/decisions/0007-enforce-independent-roles.md)) |
 | 0.1.3 | [Release](https://github.com/murbachovski/murba-good-work/releases/tag/v0.1.3) | 실행 중 예약 호출(`ScheduleWakeup`·`CronCreate`) 금지, `.gitignore`로 소스 변경 숨기기 차단 ([ADR 0006](docs/decisions/0006-no-wakeups-and-gitignore.md)) |
 | 0.1.2 | [Release](https://github.com/murbachovski/murba-good-work/releases/tag/v0.1.2) | 단계를 생략한 실행은 소스를 바꿀 수 없음, init 기준선, 대상 저장소 `.gitignore` 미변경 ([ADR 0005](docs/decisions/0005-skipped-runs-and-baseline.md)) |

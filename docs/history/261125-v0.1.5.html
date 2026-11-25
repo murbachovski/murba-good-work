@@ -1,0 +1,31 @@
+<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>작업 보고서 261125 · 0.1.5</title><style>
+:root{--bg:#fafaf9;--fg:#1c1917;--mut:#57534e;--line:#e7e5e4;--card:#fff;--ok:#15803d;--warn:#b45309;--bad:#b91c1c;--acc:#1d4ed8}
+@media (prefers-color-scheme:dark){:root{--bg:#0c0a09;--fg:#e7e5e4;--mut:#a8a29e;--line:#292524;--card:#1c1917;--ok:#4ade80;--warn:#fbbf24;--bad:#f87171;--acc:#93c5fd}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 -apple-system,"Apple SD Gothic Neo","Noto Sans KR",sans-serif}
+main{max-width:960px;margin:0 auto;padding:32px 16px 64px}
+h1{font-size:26px;margin:0 0 20px}h2{font-size:18px;margin:36px 0 12px;padding-top:12px;border-top:1px solid var(--line)}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:8px;overflow:hidden;display:block;overflow-x:auto}
+th,td{text-align:left;vertical-align:top;padding:8px 10px;border-bottom:1px solid var(--line)}th{color:var(--mut);font-weight:600;font-size:13px}
+code{font:13px ui-monospace,Menlo,monospace;background:var(--line);padding:1px 4px;border-radius:4px}
+ul,ol{padding-left:22px}li{margin:3px 0}.b{font-weight:700}.ok{color:var(--ok)}.warn{color:var(--warn)}.bad{color:var(--bad)}
+h2:first-of-type+ul{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 12px 12px 30px}
+pre{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px;overflow-x:auto}h3{font-size:16px;margin:20px 0 8px}</style></head><body><main>
+<h1>작업 보고서 261125 · 플러그인 0.1.5</h1>
+<h2>요약</h2>
+<ul><li><strong>한 일</strong>: v0.1.4 알려진 문제(BSD <code>sed -i ''</code>의 스크립트를 파일로 읽는 guard 오탐)를 고친 v0.1.5를 main에 머지(PR #18). 독립 리뷰 3회 + 3차 뒤 수정 1회(ADR 0003). v0.1.3·v0.1.4 기록(PR #17), README 사용 시나리오</li><li><strong>결과</strong>: v0.1.5 tag·[Release](https://github.com/murbachovski/murba-good-work/releases/tag/v0.1.5)(<code>648a55d</code>), 회귀 11/11. <code>sed -i</code> 해석을 두 번 훑는 방식으로 바꿔 BSD·GNU 차이(접미어, 옵션 순서 바꿈, <code>-l</code>, 빈 스크립트)를 반영. 이전에 놓치던 형태(<code>-Ei</code>·<code>-ni</code>·<code>-I</code>·<code>--in-place=</code>·<code>gsed</code>)도 잡음. 테스트 251개 중 250 통과·1 건너뜀</li><li><strong>다음</strong>: 사용자 결정(grill 단독 실행 결함 수정, 실제 프로젝트에서 시간·비용·결과 측정 등)</li></ul>
+<h2>먼저 볼 것</h2>
+<div class="t"><table><thead><tr><th>구분</th><th>내용</th></tr></thead><tbody><tr><td><span class="b bad">❌</span> 실패·생략</td><td>첫 커밋(<code>ee41dc1</code>) 실제 실행 t010이 test-write 단계 30분 시간 초과. setup에서 만든 <code>serve.js</code>가 잠금 게이트에 걸림 → 메인 세션의 <code>playwright.config.js</code> 수정이 0.1.4 규칙(test-write 단계 메인 세션 테스트·설정 쓰기 금지)에 막혀 test-writer 재호출 → Playwright RED 재실행. sed 변경과는 무관. 같은 과제 <code>57d604f</code> 실행은 done(16.3분)</td></tr><tr><td><span class="b warn">⚠️</span> 미검증</td><td>GNU sed는 실제로 실행하지 못함(로컬에 없음). GNU 동작은 문서 근거. BSD 동작은 리뷰어가 macOS sed로 확인</td></tr><tr><td>범위 밖 변경</td><td>없음</td></tr></tbody></table></div>
+<h2>단계</h2>
+<div class="t"><table><thead><tr><th>단계</th><th>상태</th><th>증거</th></tr></thead><tbody><tr><td>v0.1.3·v0.1.4 기록(PR #17)</td><td><span class="b ok">✅</span></td><td>보고서 2개, CHANGELOG 회귀 결과·알려진 문제, README·CLAUDE.md</td></tr><tr><td>1차 구현(<code>ee41dc1</code>)</td><td><span class="b ok">✅</span></td><td><code>sedFiles()</code>. 실제 실행 t002·t067 done, t010 시간 초과(위)</td></tr><tr><td>리뷰 1차 → 수정(<code>a241087</code>)</td><td><span class="b ok">✅</span></td><td>차단 2(첫 수정이 만든 <code>sed -e x -i .파일</code> 우회, guard 수준 테스트 없음)·중요 3</td></tr><tr><td>리뷰 2차 → 수정(<code>57d604f</code>)</td><td><span class="b ok">✅</span></td><td>차단 2(BSD <code>-l</code>을 값 있는 옵션으로 봐 <code>sed -i -l 's/a/b/' &lt;보호파일&gt;</code> 통과 — 리뷰어가 macOS에서 실제 쓰기 확인, <code>-e</code>가 뒤에 오는 GNU 순서)·중요 2. 실제 실행 t002·t010·t067 모두 done</td></tr><tr><td>리뷰 3차 → 수정(<code>a9aad24</code>)</td><td><span class="b ok">✅</span></td><td>차단 1(GNU <code>sed -n -i '' F</code>가 F를 비움)·중요 2·경미 1. 수정 뒤 리뷰 없음(ADR 0003). 리뷰어 비교 스크립트(5개 상황 × sed 114형태 + 후보)로 확인: main 대비 새로 허용되는 46행은 BSD·GNU 둘 다 오류로 끝나는 형태뿐</td></tr><tr><td>머지(PR #18, <code>648a55d</code>)</td><td><span class="b ok">✅</span></td><td>PR 체크 4개 성공</td></tr><tr><td>회귀 세트 → tag·Release</td><td><span class="b ok">✅</span></td><td><code>release-015</code> 11/11 done·성공, $11.54, 평균 6.8분. guard 거부 2건 모두 역할 규칙, 0.1.4에서 오탐이 났던 t002는 거부 0건. tag <code>v0.1.5</code> → <code>648a55d</code>, [Release](https://github.com/murbachovski/murba-good-work/releases/tag/v0.1.5)</td></tr><tr><td>README 사용 시나리오</td><td><span class="b ok">✅</span></td><td>독립 사실 확인 2회(1차 차단 3: 무인 실행 권한 옵션 누락, grill 단독 실행 실패, "승인 뒤 묻지 않음" 부정확 / 2차 중요 4: <code>timeout</code> 안내 회귀 등) 반영</td></tr></tbody></table></div>
+<h2>내가 내린 결정</h2>
+<div class="t"><table><thead><tr><th>결정</th><th>틀렸을 때 비용</th></tr></thead><tbody><tr><td>셸 해석은 BSD·GNU 중 더 많이 막는 쪽을 택함(맨 앞 <code>''</code>는 <code>-n</code>이 있거나 다른 파일이 없으면 GNU 해석도 봄)</td><td><code>sed -i '' -n 's#&lt;보호 경로&gt;#…#p' &lt;파일&gt;</code>은 오탐</td></tr><tr><td>점 없는 BSD 접미어(<code>sed -i bak …</code>)는 그대로 둠</td><td>그 형태에서 스크립트에 보호 경로가 있으면 오탐(main도 같음)</td></tr><tr><td>둘 다 오류로 끝나는 형태(<code>sed -i .bak F</code>)는 허용으로 바뀌어도 받아들임</td><td>sed 구현이 문서와 다르면 놓침(리뷰어가 BSD 실행으로 확인)</td></tr><tr><td>t010 시간 초과를 sed 변경과 무관한 것으로 판단</td><td>0.1.4 역할 강제가 test-write 단계를 늘리는 마찰은 남음(관찰로 기록)</td></tr></tbody></table></div>
+<h2>관찰(다음 후보)</h2>
+<ul><li>0.1.4 역할 강제의 마찰: setup에서 만든 보조 파일이 잠금 게이트에 걸리면 test-write 단계에서 메인 세션이 러너 설정을 못 고쳐 test-writer를 다시 불러야 한다. 시나리오 실행 3번 중 1번 시간 초과에 영향</li><li>sed 하나로 독립 리뷰 3회가 모두 머지 불가였다. 셸 명령 해석은 형태마다 구멍이 나오는 영역이라, guard는 안전망이라는 ADR 0003 전제를 유지한다</li></ul>
+<h2>비용</h2>
+<ul><li>실제 실행: <code>v015-check</code> $5.92(t010 시간 초과분 미집계), <code>v015-check2</code> $7.73, 회귀 세트 $11.54. 리뷰 에이전트 비용은 측정 수단 없음</li></ul>
+<h2>남은 질문</h2>
+<ul><li>grill 스킬을 run 밖에서 따로 부르면 <code>murba init</code> 없이 시작해 <code>murba ac sync</code>가 오류를 낸다(0.1.0부터, README 사실 확인에서 발견). 고칠지 사용자 결정</li></ul>
+<h2>다음 할 일</h2>
+<ul><li>위 질문의 답에 따라 진행</li></ul>
+</main></body></html>
