@@ -35,7 +35,7 @@
 - 처음에 선택형 질문(grill)이 몇 번 나오고, 기획서와 수용 기준(AC)을 보여주며 **한 번 승인**을 받습니다
 - 승인 뒤에는 자동으로 진행하고 끝나면 `.murba/report.md`·`.murba/report.html`을 만듭니다
 - 끊겼다면 `/murba-good-work:resume`
-- `/murba-good-work:grill`은 run 안에서 쓰는 기획 단계입니다. 따로 부르면 `murba init`이 없어 기획서 동기화(`murba ac sync`)에서 멈춥니다(알려진 문제)
+- `/murba-good-work:grill`은 run 안에서 쓰는 기획 단계입니다. 따로 부르면 `murba init` 없이 시작해 기획서 동기화(`murba ac sync`)가 'murba init 먼저' 오류(종료 코드 1)를 냅니다(알려진 문제)
 
 무인 실행(질문 없이, 답을 미리 줌): 아래 [시나리오 6](#6-무인으로-맡기기밤새ci)의 명령(권한 허용 옵션 포함)
 - `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`: `-p`는 기본적으로 백그라운드 작업을 10분까지만 기다리고 끝냅니다. 긴 서브에이전트가 끊기지 않게 하는 대신 상한 없이 기다리므로, 바깥에서 시간 제한(예: `timeout 60m`)을 함께 거세요
@@ -46,7 +46,7 @@
 상황: 할 일 웹앱에 "완료한 항목 숨기기"를 넣고 싶다.
 
 0. **준비**: 대상 폴더가 **첫 커밋이 있는 git 저장소**여야 한다. 새 폴더면 `git init` 후 첫 커밋부터(첫 커밋 전에 시작하면 소스 변경 검사가 조용히 꺼진다)
-1. Claude Code를 열고 요청한다. 시작하자마자 `feat/<이름>` 브랜치를 만든다
+1. Claude Code를 열고 요청한다. 플러그인이 시작하자마자 `feat/<이름>` 브랜치를 만든다
    ```
    /murba-good-work:run 완료한 할 일을 숨기는 토글을 넣어줘. 새로고침해도 설정이 유지되게.
    ```
@@ -54,7 +54,7 @@
 3. **기획서를 승인한다(1회)**: 핵심 5줄, 수용 기준(AC, 예: `AC-001 WHEN 토글을 켜면 THE SYSTEM SHALL 완료 항목을 숨긴다`), AC→테스트 대응표를 보여준다. AC가 요구를 다 담았는지 여기서 확인한다. 승인하면 Claude Code 확인 창이 한 번 더 뜬다(`murba approve`)
 4. **기다린다**: 플러그인은 이제 기획을 묻지 않는다. 테스트 먼저 작성 → AC마다 구현·커밋 → 판정 → 전체 재확인 → 브라우저 스크린샷까지 진행한다. 취향 수준의 결정은 추천안으로 정하고 결정 큐에 쌓는다. 방향을 바꾸는 결정과 되돌릴 수 없는 작업은 정하지 않고 큐에만 올린다
    - 플러그인과 별개로 **Claude Code 권한 확인 창**은 뜰 수 있다(`npm i`, `npx playwright install` 등 허용하지 않은 명령)
-5. **마지막 질문 1회**: 끝에서 결정 큐 항목을 선택형으로 한 번 묻는다. 추천안과 다르게 답하면 그 AC를 다시 구현한다
+5. **마지막 질문(있을 때 1회)**: 결정 큐에 취향·방향·되돌릴 수 없는 작업 항목이 있으면 끝에서 선택형으로 한 번 묻는다. 추천안과 다르게 답하면 그 AC를 다시 구현한다
 6. **결과를 본다**: `.murba/report.html`(또는 `report.md`)
    - 요약 다음 "먼저 볼 것": ❌ 실패·생략 / ⚠️ 미검증 / 범위 밖 변경
    - AC별 판정(VERIFIED·NOT_VERIFIED·INCONCLUSIVE·보류)과 증거 파일, 커밋 SHA
@@ -94,16 +94,25 @@
 요구와 답을 파일에 미리 적는다(`brief.md`: 무엇을, 왜, 질문에 대한 답, 하지 말 것).
 ```
 cd <대상 저장소>
-MURBA_HEADLESS=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 claude -p --permission-mode acceptEdits \
-  --allowedTools Read Write Edit MultiEdit Glob Grep Agent Skill TodoWrite \
-    'Bash(node:*)' 'Bash(npm:*)' 'Bash(npx:*)' 'Bash(git:*)' 'Bash(murba:*)' 'Bash(ls:*)' 'Bash(cat:*)' 'Bash(mkdir:*)' \
-    'Bash(sh .murba/init.sh:*)' 'Bash(chmod:*)' 'Bash(tail:*)' 'Bash(head:*)' 'Bash(grep:*)' 'Bash(sed:*)' \
+timeout 60m env MURBA_HEADLESS=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
+  claude -p --permission-mode acceptEdits --allowedTools \
+    Read Write Edit MultiEdit Glob Grep Agent Skill TodoWrite 'Bash(node:*)' 'Bash(npm:*)' 'Bash(npx:*)' \
+    'Bash(git:*)' 'Bash(murba:*)' 'Bash(murba status:*)' 'Bash(ls:*)' 'Bash(cat:*)' 'Bash(mkdir:*)' \
+    'Bash(cp:*)' 'Bash(mv:*)' 'Bash(echo:*)' 'Bash(printf:*)' 'Bash(head:*)' 'Bash(tail:*)' 'Bash(wc:*)' \
+    'Bash(grep:*)' 'Bash(find:*)' 'Bash(sed:*)' 'Bash(diff:*)' 'Bash(chmod:*)' 'Bash(test:*)' 'Bash(pwd:*)' \
+    'Bash(date:*)' 'Bash(sort:*)' 'Bash(uniq:*)' 'Bash(touch:*)' 'Bash(sh ./init.sh:*)' \
+    'Bash(sh .murba/init.sh:*)' 'Bash(bash .murba/init.sh:*)' 'Bash(curl -s http://localhost:*)' \
+    'Bash(curl -s http://127.0.0.1:*)' 'Bash(sleep:*)' 'Bash(kill:*)' 'Bash(lsof -i:*)' 'Bash(jq:*)' \
+    'Bash(awk:*)' 'Bash(tr:*)' 'Bash(cut:*)' 'Bash(xargs:*)' 'Bash(true:*)' 'Bash(which:*)' 'Bash(printenv:*)' \
+    'Bash(node --test:*)' 'Bash(cd:*)' 'Bash(mktemp:*)' 'Bash(python3:*)' 'Bash(basename:*)' 'Bash(dirname:*)' \
+    'Bash(realpath:*)' 'Bash(stat:*)' 'Bash(cmp:*)' 'Bash(tee:*)' 'Bash(xxd:*)' 'Bash(od:*)' 'Bash(file:*)' \
   -- "/murba-good-work:run $(cat brief.md)"
 ```
-- 무인 실행은 권한 창을 띄울 수 없으므로 쓸 명령을 미리 허용해야 한다. 위는 예시이고, **시험한 목록 전체는 [`scenarios/harness/run.mjs`](scenarios/harness/run.mjs)의 `ALLOWED`**다(그 목록과 `--permission-mode acceptEdits`로만 시험했다). 허용하지 않은 명령은 거부되고 실행이 막힐 수 있다
+- 무인 실행은 권한 창을 띄울 수 없으므로 쓸 명령을 미리 허용해야 한다. 위 허용 목록은 시나리오 실행기가 쓴 목록([`scenarios/harness/run.mjs`](scenarios/harness/run.mjs)의 `ALLOWED`) 그대로이고, 이 목록과 `--permission-mode acceptEdits`로만 시험했다. 목록을 줄이면 필요한 명령이 거부돼 실행이 막힐 수 있다
 - 질문 없이 끝까지 간다. 아침에 `.murba/report.html`과 결정 큐(`.murba/decisions.tsv`)를 본다
-- 시간 제한을 바깥에서 건다(예: `timeout 60m …`). `timeout`은 GNU coreutils 명령이라 macOS에는 기본으로 없다(`brew install coreutils` 뒤 `gtimeout`)
-- 시간(0.1.3·0.1.4 회귀 각 1회, 서브에이전트까지 sonnet 강제, 동시 6개 실행): 보고만 하는 조사·위험 과제 1분 안팎, 일반 과제 3~13분, AC가 10개 넘는 화면 과제 15~25분. 30분 시간 초과도 있었다. 출시 설정(일부 에이전트 opus)은 더 느리고 비쌀 수 있다
+- `timeout`은 GNU coreutils 명령이라 macOS에는 기본으로 없다(`brew install coreutils` 뒤 `gtimeout`으로 바꿔 쓴다). 환경변수는 `env`로 넘겨야 `timeout` 뒤에서 동작한다
+- 시간(0.1.3·0.1.4 회귀 각 1회, 서브에이전트까지 sonnet 강제, 동시 6개 실행): 보고만 하는 조사·위험 과제 1분 안팎, 일반 과제 3~13분, AC가 10개 넘는 화면 과제 15~25분. 출시 설정(일부 에이전트 opus)은 더 느리고 비쌀 수 있다
+- 이 회귀 밖의 확인 실행에서는 30분 시간 초과가 2번 있었다(browser 단계의 모델·API 지연 1번, test-write 단계 재작업 1번). 시간 제한은 넉넉히 건다
 
 ### 이럴 땐 쓰지 마세요
 - 한두 줄 고치기, 오타, 빠른 실험: 기획·승인·테스트·독립 평가를 모두 거쳐 느리고 비싸다(비교 평가에서 비용이 pstack의 약 6.7배)
@@ -179,7 +188,7 @@ guard는 협조적인 모델의 실수와 테스트 꼼수를 막는 **안전망
 | `-p` 실행이 중간에 끝남 | 백그라운드 서브에이전트 대기 상한(10분) | `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`과 바깥 시간 제한 |
 
 ## 알려진 문제와 한계
-- `/murba-good-work:grill`을 run 밖에서 따로 부르면 `murba init` 없이 시작해 `murba ac sync`에서 멈춥니다. 기획은 `/murba-good-work:run` 안에서 하세요
+- `/murba-good-work:grill`을 run 밖에서 따로 부르면 `murba init` 없이 시작해 `murba ac sync`가 'murba init 먼저' 오류(종료 코드 1)를 냅니다. 기획은 `/murba-good-work:run` 안에서 하세요
 - 사용자 답변의 명시 요구가 AC로 옮겨지지 않으면 자기 판정은 통과합니다. spec-reviewer가 요구→AC 대응표를 만들지만 프롬프트 지시이고 CLI가 강제하지 않습니다. 승인 때 AC가 요구를 다 담았는지 확인하세요
 - 0.1.4부터 test-writer·evaluator의 보고 파일이 있어야 테스트 잠금·qa 통과가 됩니다. 다만 보고의 **존재와 시각**만 확인하고, 내용이 원장 판정과 같은지는 지침에 맡깁니다
 - 생략한 실행이 done에서 거부돼도 headless 실행은 보고서가 있으면 끝나고 단계는 report로 남습니다

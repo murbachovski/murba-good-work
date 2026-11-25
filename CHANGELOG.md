@@ -6,6 +6,10 @@
 - **플러그인 버전**(`plugins/murba-good-work/.claude-plugin/plugin.json`의 `version`): SemVer, 첫 동작 버전 `0.1.0`
 
 ## [Unreleased]
+### 문서
+- README 사용 시나리오(대화형 새 기능·버그·조사·위험 작업·재개·무인 실행, 쓰지 말아야 할 때). 무인 실행 예시는 시험한 권한 옵션 그대로
+### 알려진 문제
+- (0.1.0부터) `grill` 스킬을 run 밖에서 따로 부르면 `murba init` 없이 시작해 `murba ac sync`가 'murba init 먼저' 오류(종료 코드 1)를 낸다. README에서 단독 사용 안내를 뺌
 
 ## [플러그인 0.1.5] - 2026-11-25
 ### 바뀜
@@ -21,7 +25,6 @@
 ### 알려진 문제
 - 점 없는 BSD 접미어(`sed -i bak …`, `sed -i '~' …`)는 접미어를 스크립트로, 스크립트를 파일로 읽는다. 스크립트에 보호 경로가 있으면 오탐(안전한 쪽, main도 같음)
 - `sed -i '' -n 's#<보호 경로>#…#p' <파일>`은 스크립트도 파일로 보아 오탐(위 GNU 해석의 대가)
-- (0.1.0부터) `grill` 스킬을 run 밖에서 따로 부르면 `murba init`이 없어 `murba ac sync`에서 멈춘다. README에서 단독 사용 안내를 뺌
 
 ## [플러그인 0.1.4] - 2026-11-24
 ### 바뀜 ([ADR 0007](docs/decisions/0007-enforce-independent-roles.md))
