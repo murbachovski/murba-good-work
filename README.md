@@ -35,12 +35,9 @@
 - 처음에 선택형 질문(grill)이 몇 번 나오고, 기획서와 수용 기준(AC)을 보여주며 **한 번 승인**을 받습니다
 - 승인 뒤에는 자동으로 진행하고 끝나면 `.murba/report.md`·`.murba/report.html`을 만듭니다
 - 끊겼다면 `/murba-good-work:resume`
-- 기획만 다듬고 싶으면 `/murba-good-work:grill`
+- `/murba-good-work:grill`은 run 안에서 쓰는 기획 단계입니다. 따로 부르면 `murba init`이 없어 기획서 동기화(`murba ac sync`)에서 멈춥니다(알려진 문제)
 
-무인 실행(질문 없이, 답을 미리 줌):
-```
-MURBA_HEADLESS=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 claude -p "/murba-good-work:run $(cat brief.md)"
-```
+무인 실행(질문 없이, 답을 미리 줌): 아래 [시나리오 6](#6-무인으로-맡기기밤새ci)의 명령(권한 허용 옵션 포함)
 - `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`: `-p`는 기본적으로 백그라운드 작업을 10분까지만 기다리고 끝냅니다. 긴 서브에이전트가 끊기지 않게 하는 대신 상한 없이 기다리므로, 바깥에서 시간 제한(예: `timeout 60m`)을 함께 거세요
 - 무인 실행에서는 승인을 미리 준 것으로 보고(`MURBA_HEADLESS=1`), 정할 것은 추천안으로 정해 결정 큐에 남깁니다
 
@@ -48,18 +45,21 @@ MURBA_HEADLESS=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 claude -p "/murba-good-w
 ### 1. 새 기능 만들기(대화형, 가장 흔한 경우)
 상황: 할 일 웹앱에 "완료한 항목 숨기기"를 넣고 싶다.
 
-1. 대상 저장소에서 Claude Code를 열고 요청한다
+0. **준비**: 대상 폴더가 **첫 커밋이 있는 git 저장소**여야 한다. 새 폴더면 `git init` 후 첫 커밋부터(첫 커밋 전에 시작하면 소스 변경 검사가 조용히 꺼진다)
+1. Claude Code를 열고 요청한다. 시작하자마자 `feat/<이름>` 브랜치를 만든다
    ```
    /murba-good-work:run 완료한 할 일을 숨기는 토글을 넣어줘. 새로고침해도 설정이 유지되게.
    ```
 2. **질문에 답한다(grill)**: 선택형 질문이 한 번에 최대 4개씩 나온다(첫 선택지가 추천안). 예: "토글 위치?", "기본값은 보이기?"
 3. **기획서를 승인한다(1회)**: 핵심 5줄, 수용 기준(AC, 예: `AC-001 WHEN 토글을 켜면 THE SYSTEM SHALL 완료 항목을 숨긴다`), AC→테스트 대응표를 보여준다. AC가 요구를 다 담았는지 여기서 확인한다. 승인하면 Claude Code 확인 창이 한 번 더 뜬다(`murba approve`)
-4. **기다린다**: 이후에는 묻지 않는다. `feat/<이름>` 브랜치를 만들고 테스트 먼저 작성 → AC마다 구현·커밋 → 판정 → 전체 재확인 → 브라우저 스크린샷까지 진행한다. 정할 것이 생기면 추천안으로 정하고 결정 큐에 쌓는다
-5. **결과를 본다**: `.murba/report.html`(또는 `report.md`)
-   - 맨 위 "먼저 볼 것": ❌ 실패·생략 / ⚠️ 미검증 / 범위 밖 변경
-   - AC별 판정(VERIFIED·NOT_VERIFIED·INCONCLUSIVE)과 증거 파일, 커밋 SHA
+4. **기다린다**: 플러그인은 이제 기획을 묻지 않는다. 테스트 먼저 작성 → AC마다 구현·커밋 → 판정 → 전체 재확인 → 브라우저 스크린샷까지 진행한다. 취향 수준의 결정은 추천안으로 정하고 결정 큐에 쌓는다. 방향을 바꾸는 결정과 되돌릴 수 없는 작업은 정하지 않고 큐에만 올린다
+   - 플러그인과 별개로 **Claude Code 권한 확인 창**은 뜰 수 있다(`npm i`, `npx playwright install` 등 허용하지 않은 명령)
+5. **마지막 질문 1회**: 끝에서 결정 큐 항목을 선택형으로 한 번 묻는다. 추천안과 다르게 답하면 그 AC를 다시 구현한다
+6. **결과를 본다**: `.murba/report.html`(또는 `report.md`)
+   - 요약 다음 "먼저 볼 것": ❌ 실패·생략 / ⚠️ 미검증 / 범위 밖 변경
+   - AC별 판정(VERIFIED·NOT_VERIFIED·INCONCLUSIVE·보류)과 증거 파일, 커밋 SHA
    - "내가 내린 결정"과 틀렸을 때 비용, "남은 질문"
-6. **직접 마무리한다**: 플러그인은 push·main 머지를 하지 않는다. `feat/<이름>` 브랜치를 검토하고 직접 머지·push한다
+7. **직접 마무리한다**: push는 guard가 막고, main 머지는 하지 않도록 지침에 있다. `feat/<이름>` 브랜치를 검토해 직접 머지·push한다
 
 ### 2. 버그 고치기
 ```
@@ -73,16 +73,15 @@ MURBA_HEADLESS=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 claude -p "/murba-good-w
 /murba-good-work:run 결제 모듈에서 재시도 로직이 어디서 어떻게 동작하는지 조사해줘
 ```
 - 소스를 고치지 않는다. 결과는 프로젝트 루트 `INVESTIGATION.md`(또는 지정한 경로)에 `file:line` 근거와 함께 쓴다
-- 조사 과제는 승인·테스트·build 단계를 건너뛰지만, 그 실행이 구현 파일을 바꾸면 CLI가 끝내지 못하게 막는다
+- 조사 과제는 승인·테스트·build 단계를 건너뛴다. 그 실행이 구현 파일을 바꾸면 CLI가 생략과 `done` 전이를 거부한다(결과 파일을 `src/` 안이나 코드 확장자로 지정하면 그것도 걸린다)
 
-### 4. 위험한 요청이 섞였을 때
+### 4. 위험한 작업이 섞였을 때
 ```
-/murba-good-work:run src 통째로 지우고 새로 짜줘
+/murba-good-work:run 오래된 users 테이블은 지우고 새 스키마로 옮겨줘
 ```
-- 삭제·DB 초기화·push·배포 같은 **되돌릴 수 없는 작업은 실행하지 않는다**. 결정 큐에 "사용자 확인 필요"로 올리고 보고서 "남은 질문"에 남긴다
-- 이것은 triage가 위험 요청으로 표시한 실행의 지침이다. guard가 직접 막는 것은 [안전장치](#안전장치)의 목록뿐이고, 프로젝트 안쪽 폴더 삭제(예: `rm -rf src`)는 guard가 막지 않는다
-- 안전한 부분(예: 같은 동작의 새 구현)은 보통 흐름(AC·승인·테스트·build)으로 진행하거나, 진행할 것이 없으면 보고서만 쓰고 끝낸다
-- 실제로 지울지는 보고서를 보고 사람이 정한다
+- 삭제·DB 초기화·push·배포처럼 **되돌릴 수 없는 작업은 하지 않는다**(모든 실행의 지침). 결정 큐에 `irreversible`로 올리고 보고서 "남은 질문"에 남긴다. 실제로 할지는 보고서를 보고 사람이 정한다
+- guard가 직접 막는 것은 [안전장치](#안전장치) 목록(DB 삭제·마이그레이션, push, 루트·홈 삭제 등)뿐이다. 프로젝트 안쪽 폴더 삭제(예: `rm -rf src`)는 막지 않는다
+- triage가 요청을 "위험"으로 표시하면 단계를 생략하고 보고서만 쓰고 끝낼 수 있다. 표시는 모델 판단이라 실행마다 다를 수 있다. 예: "src 통째로 지우고 새로 짜줘"는 실행에 따라 멈추고 보고만 하거나, `feat/` 브랜치에서 기존 파일을 덮어써 다시 짰다(git으로 복구 가능)
 
 ### 5. 중간에 끊겼을 때
 세션이 끝났거나 컨텍스트가 압축됐으면:
@@ -91,22 +90,20 @@ MURBA_HEADLESS=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 claude -p "/murba-good-w
 ```
 - 기억이 아니라 원장(`.murba/state.json`·`events.jsonl`·`handoff/`)과 `git log`에서 이어 간다. 이전에 "통과"라고 한 것은 다시 실행해 확인한다
 
-### 6. 기획만 다듬기
-```
-/murba-good-work:grill 팀 일정 공유 기능 기획
-```
-- 선택형 질문에 답해 기획서·AC를 만든다. 구현은 하지 않는다
-
-### 7. 무인으로 맡기기(밤새·CI)
+### 6. 무인으로 맡기기(밤새·CI)
 요구와 답을 파일에 미리 적는다(`brief.md`: 무엇을, 왜, 질문에 대한 답, 하지 말 것).
 ```
 cd <대상 저장소>
-timeout 60m env MURBA_HEADLESS=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 \
-  claude -p "/murba-good-work:run $(cat brief.md)"
+MURBA_HEADLESS=1 CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0 claude -p --permission-mode acceptEdits \
+  --allowedTools Read Write Edit MultiEdit Glob Grep Agent Skill TodoWrite \
+    'Bash(node:*)' 'Bash(npm:*)' 'Bash(npx:*)' 'Bash(git:*)' 'Bash(murba:*)' 'Bash(ls:*)' 'Bash(cat:*)' 'Bash(mkdir:*)' \
+    'Bash(sh .murba/init.sh:*)' 'Bash(chmod:*)' 'Bash(tail:*)' 'Bash(head:*)' 'Bash(grep:*)' 'Bash(sed:*)' \
+  -- "/murba-good-work:run $(cat brief.md)"
 ```
+- 무인 실행은 권한 창을 띄울 수 없으므로 쓸 명령을 미리 허용해야 한다. 위는 예시이고, **시험한 목록 전체는 [`scenarios/harness/run.mjs`](scenarios/harness/run.mjs)의 `ALLOWED`**다(그 목록과 `--permission-mode acceptEdits`로만 시험했다). 허용하지 않은 명령은 거부되고 실행이 막힐 수 있다
 - 질문 없이 끝까지 간다. 아침에 `.murba/report.html`과 결정 큐(`.murba/decisions.tsv`)를 본다
-- `timeout`은 GNU coreutils 명령이다. macOS에는 기본으로 없으니 `brew install coreutils` 뒤 `gtimeout`을 쓰거나 다른 방법으로 시간 제한을 건다
-- 시간: 회귀 시나리오 기준(sonnet) 작은 과제 1~12분, AC가 10개 넘는 화면 과제 15~25분. 시간 제한은 넉넉히
+- 시간 제한을 바깥에서 건다(예: `timeout 60m …`). `timeout`은 GNU coreutils 명령이라 macOS에는 기본으로 없다(`brew install coreutils` 뒤 `gtimeout`)
+- 시간(0.1.3·0.1.4 회귀 각 1회, 서브에이전트까지 sonnet 강제, 동시 6개 실행): 보고만 하는 조사·위험 과제 1분 안팎, 일반 과제 3~13분, AC가 10개 넘는 화면 과제 15~25분. 30분 시간 초과도 있었다. 출시 설정(일부 에이전트 opus)은 더 느리고 비쌀 수 있다
 
 ### 이럴 땐 쓰지 마세요
 - 한두 줄 고치기, 오타, 빠른 실험: 기획·승인·테스트·독립 평가를 모두 거쳐 느리고 비싸다(비교 평가에서 비용이 pstack의 약 6.7배)
@@ -182,6 +179,7 @@ guard는 협조적인 모델의 실수와 테스트 꼼수를 막는 **안전망
 | `-p` 실행이 중간에 끝남 | 백그라운드 서브에이전트 대기 상한(10분) | `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`과 바깥 시간 제한 |
 
 ## 알려진 문제와 한계
+- `/murba-good-work:grill`을 run 밖에서 따로 부르면 `murba init` 없이 시작해 `murba ac sync`에서 멈춥니다. 기획은 `/murba-good-work:run` 안에서 하세요
 - 사용자 답변의 명시 요구가 AC로 옮겨지지 않으면 자기 판정은 통과합니다. spec-reviewer가 요구→AC 대응표를 만들지만 프롬프트 지시이고 CLI가 강제하지 않습니다. 승인 때 AC가 요구를 다 담았는지 확인하세요
 - 0.1.4부터 test-writer·evaluator의 보고 파일이 있어야 테스트 잠금·qa 통과가 됩니다. 다만 보고의 **존재와 시각**만 확인하고, 내용이 원장 판정과 같은지는 지침에 맡깁니다
 - 생략한 실행이 done에서 거부돼도 headless 실행은 보고서가 있으면 끝나고 단계는 report로 남습니다
