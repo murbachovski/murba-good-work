@@ -720,11 +720,12 @@ function publishDeploy(c0, w) {
 // Files `sed -i` edits. Two passes, because GNU permutes options: a `-e`/`-f` script anywhere (`sed -i f -e x`) makes every
 // operand a file; otherwise the first operand is the script. BSD `sed -i '' …` / `sed -i .bak …`: the word after a bare `-i` is a
 // suffix unless an operand came before it (`sed 's/a/b/' -i .mocharc.yml`: GNU edits that file) or a `-e`/`-f` script exists.
-// `-l N` / `--line-length N` take the next word only when it is a number (BSD `-l` takes no argument).
+// `-l N` / `--line-length N` take the next word only when it is a number (BSD `-l` takes no argument). A leading `''` is also
+// read the GNU way (empty script) when -n is set or nothing else is a file — see the end.
 const SED_DOT = /^\.[\w.~-]*$/;
-export const sedInPlace = w => w.slice(1).some(t => /^--in(-(p(l(a(ce?)?)?)?)?)?(=|$)/.test(t) || /^-[a-dg-hj-zA-HJ-Z]*[iI]/.test(t));
+export const sedInPlace = w => w.slice(1).some(t => /^--i(n(-(p(l(a(ce?)?)?)?)?)?)?(=|$)/.test(t) || /^-[a-dg-hj-zA-HJ-Z]*[iI]/.test(t));
 export function sedFiles(w) {
-  const items = []; let scriptOpt = false, opts = true;
+  const items = []; let scriptOpt = false, quiet = false, opts = true;
   const num = x => /^\d+$/.test(x ?? '');
   for (let i = 1; i < w.length; i++) {
     const t = w[i];
@@ -733,12 +734,14 @@ export function sedFiles(w) {
       const name = t.split('=')[0], val = t.includes('=');
       const is = (full, min) => name.length >= min && full.startsWith(name); // GNU accepts unique prefixes (--expr)
       if (is('--expression', 3) || is('--file', 4)) { scriptOpt = true; if (!val) i++; }
+      else if (is('--quiet', 3) || is('--silent', 4)) quiet = true;
       else if (is('--line-length', 3) && !val && num(w[i + 1])) i++;
       continue;
     }
     if (opts && t.startsWith('-') && t.length > 1) {
       for (let k = 1; k < t.length; k++) {
         const c = t[k], rest = t.slice(k + 1);
+        if (c === 'n') quiet = true;
         if (c === 'e' || c === 'f') { scriptOpt = true; if (!rest) i++; break; }
         if (c === 'l') { if (!rest && num(w[i + 1])) i++; break; }
         if (c === 'i' || c === 'I') {
@@ -758,6 +761,10 @@ export function sedFiles(w) {
     if (!scriptOpt && !seenOperand) { seenOperand = true; continue; } // the script
     seenOperand = true; files.push(it.operand);
   }
+  // `sed -n -i '' F`: for GNU the leading '' is an empty script and F is emptied. When '' comes first (no -e/-f) and the BSD reading
+  // finds no file or -n is set, the GNU reading (every operand is a file) is added (cost: `sed -i '' -n 's#…#p' f` also counts the script)
+  if (!scriptOpt && items[0] && items[0].suffix === '' && (quiet || !files.length))
+    for (const it of items) if ('operand' in it && !files.includes(it.operand)) files.push(it.operand);
   return files;
 }
 
